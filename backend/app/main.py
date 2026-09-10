@@ -1,9 +1,11 @@
 """サンプル CRUD API"""
 
 import os
+import re
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -32,16 +34,41 @@ def health_check():
 # ---------- Samples CRUD （サンプル） ----------
 
 
+def _like_pattern(keyword: str) -> str:
+    """ユーザー入力の % や _ をリテラルとして扱い、部分一致用のパターンにする"""
+    escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 @app.get("/samples", response_model=list[SampleResponse])
-def get_samples(db: Session = Depends(get_db)):
-    """サンプル一覧を取得する"""
-    return db.query(SampleModel).all()
+def get_samples(
+    q: str | None = Query(None, description="空白区切りのキーワード。AND条件・部分一致"),
+    db: Session = Depends(get_db),
+):
+    """サンプル一覧を取得する。q があるときは名前・場所をキーワード検索する。"""
+    query = db.query(SampleModel)
 
+    if q and q.strip():
+        # 半角・全角スペースで分割し、空文字は捨てる
+        keywords = [k for k in re.split(r"[\s\u3000]+", q.strip()) if k]
+        for keyword in keywords:
+            pattern = _like_pattern(keyword)
+            # 1キーワードは「名前または場所」に部分一致すればヒット
+            # 複数キーワードはすべて満たす（AND）
+            query = query.filter(
+                or_(
+                    SampleModel.name.like(pattern, escape="\\"),
+                    SampleModel.place.like(pattern, escape="\\"),
+                )
+            )
 
+    return query.order_by(SampleModel.date.desc()).all()
+
+  
 @app.post("/samples", response_model=SampleResponse, status_code=201)
 def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     """サンプルを追加する"""
-    db_sample = SampleModel(name=sample.name)
+    db_sample = SampleModel(**sample.model_dump())
     db.add(db_sample)
     db.commit()
     db.refresh(db_sample)

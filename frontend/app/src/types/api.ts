@@ -30,7 +30,7 @@ export interface paths {
         };
         /**
          * Get Samples
-         * @description サンプル一覧を取得する
+         * @description サンプル一覧を取得する。q があるときは名前・場所をキーワード検索する。
          */
         get: operations["get_samples_samples_get"];
         put?: never;
@@ -78,6 +78,13 @@ export interface components {
         SampleCreate: {
             /** Name */
             name: string;
+            /**
+             * Date
+             * Format: date-time
+             */
+            date: string;
+            /** Place */
+            place: string;
         };
         /** SampleResponse */
         SampleResponse: {
@@ -85,6 +92,13 @@ export interface components {
             id: number;
             /** Name */
             name: string;
+            /**
+             * Date
+             * Format: date-time
+             */
+            date: string;
+            /** Place */
+            place: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -130,7 +144,10 @@ export interface operations {
     };
     get_samples_samples_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 空白区切りのキーワード。AND条件・部分一致 */
+                q?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
