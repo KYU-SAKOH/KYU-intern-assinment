@@ -70,7 +70,75 @@ AIツール（Claude Code等）の利用は自由。ただし生成されたコ�
 |---|---|
 | http://localhost:3000 | サンプルの一覧・名前を追加するフォームが表示される |
 | http://localhost:8000 | `{"status":"healthy"}` という文字が表示される |
-| http://localhost:8000/docs | Swagger UI（APIの仕様一覧）が表示される |
+| PS C:\Users\sq.1639_4u\Desktop\intern-web-app-assignment-template-2026-summer-main> docker compose backend exec frontend npm run gen:api
+Usage:  docker compose [OPTIONS] COMMAND
+
+Define and run multi-container applications with Docker
+
+Options:
+      --all-resources              Include all resources, even those not
+                                   used by services
+      --ansi string                Control when to print ANSI control
+                                   characters ("never"|"always"|"auto")
+                                   (default "auto")
+      --compatibility              Run compose in backward compatibility mode
+      --dry-run                    Execute command in dry run mode
+      --env-file stringArray       Specify an alternate environment file
+  -f, --file stringArray           Compose configuration files
+      --parallel int               Control max parallelism, -1 for
+                                   unlimited (default -1)
+      --profile stringArray        Specify a profile to enable
+      --progress string            Set type of progress output (auto,
+                                   tty, plain, json, quiet)
+      --project-directory string   Specify an alternate working directory
+                                   (default: the path of the, first
+                                   specified, Compose file)
+  -p, --project-name string        Project name
+
+Management Commands:
+  bridge                  Convert compose files into another model
+
+Commands:
+  attach                  Attach local standard input, output, and error streams to a service's running container
+  build                   Build or rebuild services
+  commit                  Create a new image from a service container's changes
+  config                  Parse, resolve and render compose file in canonical format
+  cp                      Copy files/folders between a service container and the local filesystem
+  create                  Creates containers for a service
+  down                    Stop and remove containers, networks
+  events                  Receive real time events from containers
+  exec                    Execute a command in a running container
+  export                  Export a service container's filesystem as a tar archive
+  images                  List images used by the created containers
+  kill                    Force stop service containers
+  logs                    View output from containers
+  ls                      List running compose projects
+  pause                   Pause services
+  port                    Print the public port for a port binding
+  ps                      List containers
+  publish                 Publish compose application
+  pull                    Pull service images
+  push                    Push service images
+  restart                 Restart service containers
+  rm                      Removes stopped service containers
+  run                     Run a one-off command on a service
+  scale                   Scale services 
+  start                   Start services
+  stats                   Display a live stream of container(s) resource usage statistics
+  stop                    Stop services
+  top                     Display the running processes
+  unpause                 Unpause services
+  up                      Create and start containers
+  version                 Show the Docker Compose version information
+  volumes                 List volumes
+  wait                    Block until containers of all (or specified) services stop.
+  watch                   Watch build context for service and rebuild/refresh containers when files are updated
+
+Run 'docker compose COMMAND --help' for more information on a command.
+unknown docker command: "compose backend"
+
+What's next:
+    Debug this Compose error with Gordon → docker ai "help me fix this compose error" | Swagger UI（APIの仕様一覧）が表示される |
 
 http://localhost:3000 はこのような画面になる（名前を追加・削除できるだけのシンプルなサンプル）:
 
