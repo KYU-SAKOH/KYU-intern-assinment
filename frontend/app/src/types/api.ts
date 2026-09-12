@@ -85,6 +85,8 @@ export interface components {
             date: string;
             /** Place */
             place: string;
+            trouble_type: string;
+            trouble_detail: string;
         };
         /** SampleResponse */
         SampleResponse: {
@@ -99,6 +101,8 @@ export interface components {
             date: string;
             /** Place */
             place: string;
+            trouble_type: string;
+            trouble_detail: string;
         };
         /** ValidationError */
         ValidationError: {

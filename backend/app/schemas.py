@@ -8,6 +8,8 @@ class SampleCreate(BaseModel):
     name: str
     date: datetime
     place: str
+    trouble_type: str
+    trouble_detail: str
 
 
 class SampleResponse(BaseModel):
@@ -15,5 +17,7 @@ class SampleResponse(BaseModel):
     name: str
     date: datetime
     place: str
+    trouble_type: str
+    trouble_detail: str
 
     model_config = {"from_attributes": True}

@@ -43,6 +43,7 @@ def _like_pattern(keyword: str) -> str:
 @app.get("/samples", response_model=list[SampleResponse])
 def get_samples(
     q: str | None = Query(None, description="空白区切りのキーワード。AND条件・部分一致"),
+    trouble_type: str | None = Query(None, description="問題タイプ"),
     db: Session = Depends(get_db),
 ):
     """サンプル一覧を取得する。q があるときは名前・場所をキーワード検索する。"""
@@ -59,9 +60,11 @@ def get_samples(
                 or_(
                     SampleModel.name.like(pattern, escape="\\"),
                     SampleModel.place.like(pattern, escape="\\"),
+                    SampleModel.trouble_detail.like(pattern, escape="\\"),
                 )
             )
-
+    if trouble_type and trouble_type.strip():
+        query = query.filter(SampleModel.trouble_type == trouble_type)
     return query.order_by(SampleModel.date.desc()).all()
 
   
