@@ -44,3 +44,10 @@ class SampleModel(Base):
     # 登録者メール。一覧 API のレスポンスには含めない。
     # 更新・削除・操作ログ保存のときに「本人か」を照合するために使う
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # 管理者用の対応状況（新規作成時の初期値は "Pending"）
+    # 取りうる値: "Pending" / "Temporarily Resolved" / "Fully Resolved"
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="Pending")
+
+    # 管理者コメント（任意。未記入なら NULL）
+    admin_comment: Mapped[str | None] = mapped_column(Text, nullable=True)

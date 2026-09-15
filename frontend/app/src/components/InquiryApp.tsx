@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import TerravieReproduce from '@/components/TerravieReproduce';
+import { statusBadgeClass, statusLabelJa } from '@/lib/sampleStatus';
 import type { components } from '@/types/api';
 
 /**
@@ -642,6 +643,12 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
                         {sample.trouble_type}
                       </span>
                     )}
+                    {/* 管理者画面で付けた対応状況（日本語＋色分け） */}
+                    <span
+                      className={`rounded px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(sample.status)}`}
+                    >
+                      {statusLabelJa(sample.status)}
+                    </span>
                   </div>
                   <span className="text-sm text-gray-600">
                     日時: {new Date(sample.date).toLocaleString('ja-JP')}
@@ -691,6 +698,14 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
                     【操作ログ（トラブル発生通知まで）】
                   </span>
                   {sample.operation_log}
+                </div>
+              )}
+
+              {/* 管理者が付けたコメント（あれば表示） */}
+              {sample.admin_comment && (
+                <div className="rounded border border-gray-200 bg-white p-2 text-xs text-gray-800 whitespace-pre-wrap">
+                  <span className="mb-0.5 block font-semibold text-gray-600">【管理者コメント】</span>
+                  {sample.admin_comment}
                 </div>
               )}
             </li>

@@ -141,6 +141,13 @@ export interface components {
             /** Operation Log */
             operation_log?: string | null;
         };
+        /** SampleAdminUpdate（管理者画面用） */
+        SampleAdminUpdate: {
+            /** Status */
+            status: 'Pending' | 'Temporarily Resolved' | 'Fully Resolved';
+            /** Admin Comment */
+            admin_comment?: string | null;
+        };
         // ===== 追加ここまで =====
         /** SampleResponse */
         SampleResponse: {
@@ -159,6 +166,10 @@ export interface components {
             trouble_detail: string;
             /** Operation Log */
             operation_log?: string | null;
+            /** Status（管理者対応状況。初期値 Pending） */
+            status?: 'Pending' | 'Temporarily Resolved' | 'Fully Resolved';
+            /** Admin Comment */
+            admin_comment?: string | null;
         };
         /** ValidationError */
         ValidationError: {

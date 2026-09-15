@@ -19,7 +19,13 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import SampleModel
-from schemas import SampleCreate, SamplePartialUpdate, SampleResponse, SampleUpdate
+from schemas import (
+    SampleAdminUpdate,
+    SampleCreate,
+    SamplePartialUpdate,
+    SampleResponse,
+    SampleUpdate,
+)
 
 # フロントの URL（CORS で「このオリジンからはアクセスOK」と許可する）
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
@@ -41,7 +47,7 @@ app.add_middleware(
 @app.get("/")
 def health_check():
     """動作確認用。ブラウザで http://localhost:8000/ を開くと healthy が返る。"""
-    return {"status": "healthyやでー"}
+    return {"status": "healthy"}
 
 
 # ---------- Samples CRUD（問い合わせデータの作成・読取・更新・削除） ----------
@@ -79,6 +85,8 @@ def get_samples(
     # Query(...) … URL の ?q=...&trouble_type=... のようなクエリパラメータ
     q: str | None = Query(None, description="空白区切りのキーワード。AND条件・部分一致"),
     trouble_type: str | None = Query(None, description="問題タイプ（customer / stuff）"),
+    # 管理者画面のプルダウン検索用（Pending / Temporarily Resolved / Fully Resolved）
+    status: str | None = Query(None, description="対応状況で絞り込み"),
     date_from: date | None = Query(None, description="この日以降（含む）"),
     date_to: date | None = Query(None, description="この日以前（含む）"),
     # Depends(get_db) … リクエストごとに DB セッションを用意し、終わったら閉じる
@@ -89,6 +97,7 @@ def get_samples(
 
     フロントの Customer 画面は trouble_type=customer を付けて呼び、
     Staff 画面は付けない（全件）か、絞り込み時だけ付ける。
+    管理者画面は status でも絞り込める。
     """
     query = db.query(SampleModel)
 
@@ -109,6 +118,10 @@ def get_samples(
     # --- トラブル種別で絞り込み ---
     if trouble_type and trouble_type.strip():
         query = query.filter(SampleModel.trouble_type == trouble_type)
+
+    # --- 対応状況で絞り込み（管理者のプルダウン検索） ---
+    if status and status.strip():
+        query = query.filter(SampleModel.status == status.strip())
 
     # --- 日付レンジ（開始日・終了日はどちらも任意） ---
     # date 型（日付だけ）を datetime の 0:00 / 23:59:59 に広げて比較する
@@ -132,6 +145,9 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     """
     payload = sample.model_dump()  # Pydantic → 普通の dict
     payload["email"] = _normalize_email(payload["email"])
+    # 新規作成時の対応状況は必ず Pending（フロントから改ざんできないようサーバで固定）
+    payload["status"] = "Pending"
+    payload["admin_comment"] = None
     db_sample = SampleModel(**payload)  # ORM の1行分のオブジェクトを作る
     db.add(db_sample)  # 「追加予定」としてセッションに載せる
     db.commit()  # 実際に DB へ書き込む
@@ -189,6 +205,32 @@ def partial_update_sample(
 
     for key, value in data.items():
         setattr(db_sample, key, value)
+
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+
+@app.patch("/samples/{sample_id}/admin", response_model=SampleResponse)
+def admin_update_sample(
+    sample_id: int, sample: SampleAdminUpdate, db: Session = Depends(get_db)
+):
+    """
+    管理者向けの部分更新（PATCH /samples/{id}/admin）。
+
+    - status: Pending / Temporarily Resolved / Fully Resolved
+    - admin_comment: 管理者コメント（空文字は「コメントなし」として NULL にする）
+
+    デモ用のためメール照合やログイン認証は行わない。
+    """
+    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    db_sample.status = sample.status
+    # 空白だけのコメントは「未記入」と同じ扱いにする
+    comment = (sample.admin_comment or "").strip()
+    db_sample.admin_comment = comment if comment else None
 
     db.commit()
     db.refresh(db_sample)

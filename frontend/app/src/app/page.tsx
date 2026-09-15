@@ -4,6 +4,7 @@ import Link from 'next/link';
  * トップページ（ / ）
  *
  * 最初に「Customer」か「Staff」を選ばせる画面。
+ * 管理者画面は通常ボタンではなく、下の案内どおり URL で開く（誤操作を減らすため）。
  * Next.js の Link で別ページ（/customer, /staff）へ移動する。
  */
 export default function Home() {
@@ -35,6 +36,33 @@ export default function Home() {
           </span>
         </Link>
       </div>
+
+      {/*
+        管理者画面への入り方:
+        大きなボタンにすると誤タップしやすいので、説明文 + 控えめなリンクにしている。
+        実 URL は http://localhost:3000/admin （app/admin/page.tsx）
+      */}
+      <section className="mt-10 rounded border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+        <p className="font-semibold text-gray-900">管理者画面の開き方</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>
+            ブラウザのアドレス欄に{' '}
+            <code className="rounded bg-white px-1.5 py-0.5 text-xs">http://localhost:3000/admin</code>{' '}
+            と入力してアクセスする
+          </li>
+          <li>または、下のリンク「Administrator」をクリックする</li>
+        </ol>
+        <p className="mt-2 text-xs text-gray-500">
+          管理者画面では、対応状況（未対応 / 一時対応済み / 完全対応済み）の変更とコメント追加、
+          キーワード・種別・期間での検索ができます。
+        </p>
+        <Link
+          href="/admin"
+          className="mt-3 inline-block text-sm font-medium text-gray-800 underline hover:text-gray-600"
+        >
+          Administrator を開く
+        </Link>
+      </section>
     </main>
   );
 }
