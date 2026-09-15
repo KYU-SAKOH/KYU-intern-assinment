@@ -99,6 +99,8 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
+            /** Operation Log */
+            operation_log?: string | null;
         };
         // ===== 追加: 更新用スキーマ =====
         /** SampleUpdate */
@@ -114,6 +116,8 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
+            /** Operation Log */
+            operation_log?: string | null;
         };
         /** SamplePartialUpdate */
         SamplePartialUpdate: {
@@ -128,6 +132,8 @@ export interface components {
             place?: string | null;
             trouble_type?: string | null;
             trouble_detail?: string | null;
+            /** Operation Log */
+            operation_log?: string | null;
         };
         // ===== 追加ここまで =====
         /** SampleResponse */
@@ -145,6 +151,8 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
+            /** Operation Log */
+            operation_log?: string | null;
         };
         /** ValidationError */
         ValidationError: {

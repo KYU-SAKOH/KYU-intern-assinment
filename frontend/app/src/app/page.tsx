@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import TerravieReproduce from '@/components/TerravieReproduce';
 import type { components } from '@/types/api';
 
 type Sample = components['schemas']['SampleResponse'];
@@ -26,6 +27,13 @@ export default function Home() {
 
   // ===== 追加: 編集中のサンプル ID（null = 新規作成モード） =====
   const [editingId, setEditingId] = useState<number | null>(null);
+  // ===== 追加ここまで =====
+
+  // ===== 追加: 顧客向け Terravie 再現セッション =====
+  const [reproduceTarget, setReproduceTarget] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
   // ===== 追加ここまで =====
 
   const [keyword, setKeyword] = useState('');
@@ -115,12 +123,18 @@ export default function Home() {
     e.preventDefault();
     if (!name.trim() || !date || !place.trim() || !troubleType.trim() || !troubleDetail.trim()) return;
     const formattedDate = new Date(date).toISOString();
+    // 編集時は既存の操作ログを消さないよう引き継ぐ
+    const existingLog =
+      editingId !== null
+        ? samples.find((s) => s.id === editingId)?.operation_log ?? null
+        : null;
     const body = {
       name,
       date: formattedDate,
       place,
       trouble_type: troubleType,
       trouble_detail: troubleDetail,
+      operation_log: existingLog,
     };
 
     if (editingId !== null) {
@@ -130,16 +144,23 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      resetForm();
+      loadSamples();
     } else {
-      await fetch(`${API_BASE_URL}/samples`, {
+      const res = await fetch(`${API_BASE_URL}/samples`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      const created: Sample = await res.json();
+      const shouldReproduce = troubleType === 'customer';
+      resetForm();
+      await loadSamples();
+      // 顧客の場合: 追加直後にアプリ内 Terravie 再現 → トラブル発生通知
+      if (shouldReproduce) {
+        setReproduceTarget({ id: created.id, name: created.name });
+      }
     }
-
-    resetForm();
-    loadSamples();
   };
   // ===== 変更ここまで =====
 
@@ -155,7 +176,26 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-lg px-4 py-12">
+      {/* ===== 追加: 顧客向け再現オーバーレイ ===== */}
+      {reproduceTarget && (
+        <TerravieReproduce
+          sampleId={reproduceTarget.id}
+          sampleName={reproduceTarget.name}
+          apiBaseUrl={API_BASE_URL}
+          onCompleted={() => {
+            setReproduceTarget(null);
+            loadSamples();
+          }}
+          onCancel={() => setReproduceTarget(null)}
+        />
+      )}
+      {/* ===== 追加ここまで ===== */}
+
       <h1 className="mb-6 text-2xl font-bold">Sample App</h1>
+      <p className="mb-4 text-sm text-gray-600">
+        種別が <span className="font-semibold">customer</span> の問い合わせを追加すると、
+        アプリ内で Terravie 操作を再現し「トラブル発生を通知」できます。
+      </p>
 
       <form onSubmit={handleSearch} className="mb-6 flex flex-col gap-2">
         <div className="flex flex-wrap gap-2">
@@ -337,21 +377,34 @@ export default function Home() {
                   <span className="text-sm text-gray-600">場所: {sample.place}</span>
                 </div>
                 {/* ===== 追加: 編集ボタン + 削除 ===== */}
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleStartEdit(sample)}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    編集
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(sample.id)}
-                    className="text-sm text-red-500 hover:underline"
-                  >
-                    削除
-                  </button>
+                <div className="flex flex-col items-end gap-2">
+                  {sample.trouble_type === 'customer' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReproduceTarget({ id: sample.id, name: sample.name })
+                      }
+                      className="text-sm text-emerald-700 hover:underline"
+                    >
+                      再現を記録
+                    </button>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEdit(sample)}
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      編集
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(sample.id)}
+                      className="text-sm text-red-500 hover:underline"
+                    >
+                      削除
+                    </button>
+                  </div>
                 </div>
                 {/* ===== 追加ここまで ===== */}
               </div>
@@ -363,6 +416,17 @@ export default function Home() {
                   {sample.trouble_detail}
                 </div>
               )}
+
+              {/* ===== 追加: 操作ログ表示 ===== */}
+              {sample.operation_log && (
+                <div className="rounded border border-emerald-100 bg-emerald-50/60 p-2 text-xs text-gray-800 whitespace-pre-wrap">
+                  <span className="mb-0.5 block font-semibold text-emerald-800">
+                    【操作ログ（トラブル発生通知まで）】
+                  </span>
+                  {sample.operation_log}
+                </div>
+              )}
+              {/* ===== 追加ここまで ===== */}
             </li>
           ))}
         </ul>

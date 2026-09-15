@@ -10,6 +10,8 @@ class SampleCreate(BaseModel):
     place: str
     trouble_type: str
     trouble_detail: str
+    # 追加: 操作ログ（顧客再現フローで後から PATCH することも多い）
+    operation_log: str | None = None
 
 
 # ===== 追加: 更新用スキーマ（PUT = 全項目 / PATCH = 一部だけ） =====
@@ -20,6 +22,7 @@ class SampleUpdate(BaseModel):
     place: str
     trouble_type: str
     trouble_detail: str
+    operation_log: str | None = None
 
 
 class SamplePartialUpdate(BaseModel):
@@ -29,6 +32,7 @@ class SamplePartialUpdate(BaseModel):
     place: str | None = None
     trouble_type: str | None = None
     trouble_detail: str | None = None
+    operation_log: str | None = None
 # ===== 追加ここまで =====
 
 
@@ -39,5 +43,6 @@ class SampleResponse(BaseModel):
     place: str
     trouble_type: str
     trouble_detail: str
+    operation_log: str | None = None
 
     model_config = {"from_attributes": True}
