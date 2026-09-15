@@ -24,6 +24,9 @@ export default function Home() {
   const [place, setPlace] = useState('');
   const [troubleType, setTroubleType] = useState('');
   const [troubleDetail, setTroubleDetail] = useState('');
+  // ===== 追加: 登録者メール（一覧非表示。更新・削除・再現ログ保存の照合に使用） =====
+  const [email, setEmail] = useState('');
+  // ===== 追加ここまで =====
 
   // ===== 追加: 編集中のサンプル ID（null = 新規作成モード） =====
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -33,10 +36,11 @@ export default function Home() {
   const [reproduceTarget, setReproduceTarget] = useState<{
     id: number;
     name: string;
+    email: string;
   } | null>(null);
   // ===== 追加ここまで =====
 
-  // ===== 追加: 必須5項目の未入力通知 =====
+  // ===== 追加: 必須項目の未入力通知 =====
   const [formError, setFormError] = useState('');
   const [missingFields, setMissingFields] = useState<Set<string>>(new Set());
   // ===== 追加ここまで =====
@@ -107,13 +111,23 @@ export default function Home() {
     setPlace('');
     setTroubleType('');
     setTroubleDetail('');
+    setEmail('');
     setEditingId(null);
     setFormError('');
     setMissingFields(new Set());
   };
   // ===== 追加ここまで =====
 
-  // ===== 追加: 必須5項目の欠落チェック =====
+  const clearFieldError = (key: string) => {
+    if (formError) setFormError('');
+    setMissingFields((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  // ===== 追加: 必須6項目の欠落チェック =====
   const getMissingRequiredFields = () => {
     const missing: { key: string; label: string }[] = [];
     if (!name.trim()) missing.push({ key: 'name', label: '名前' });
@@ -121,11 +135,24 @@ export default function Home() {
     if (!place.trim()) missing.push({ key: 'place', label: '場所' });
     if (!troubleType.trim()) missing.push({ key: 'troubleType', label: 'トラブル種別' });
     if (!troubleDetail.trim()) missing.push({ key: 'troubleDetail', label: 'トラブルの詳細' });
+    if (!email.trim()) missing.push({ key: 'email', label: 'メールアドレス' });
     return missing;
   };
+
+  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+  async function readApiError(res: Response, fallback: string): Promise<string> {
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === 'string') return body.detail;
+    } catch {
+      /* ignore */
+    }
+    return fallback;
+  }
   // ===== 追加ここまで =====
 
-  // ===== 追加: 一覧の「編集」→ フォームに値を載せる =====
+  // ===== 追加: 一覧の「編集」→ フォームに値を載せる（メールは再入力必須） =====
   const handleStartEdit = (sample: Sample) => {
     setEditingId(sample.id);
     setName(sample.name);
@@ -133,6 +160,7 @@ export default function Home() {
     setPlace(sample.place);
     setTroubleType(sample.trouble_type);
     setTroubleDetail(sample.trouble_detail);
+    setEmail(''); // 一覧にメールはない。登録時と同じメールの再入力が必要
     setFormError('');
     setMissingFields(new Set());
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -149,9 +177,14 @@ export default function Home() {
       setMissingFields(new Set(missing.map((m) => m.key)));
       setFormError(
         editingId !== null
-          ? `必須項目（${labels}）が未入力のため、更新できません。5項目すべて入力してください。`
-          : `必須項目（${labels}）が未入力のため、追加できません。5項目すべて入力してください。`,
+          ? `必須項目（${labels}）が未入力のため、更新できません。6項目すべて入力してください。`
+          : `必須項目（${labels}）が未入力のため、追加できません。6項目すべて入力してください。`,
       );
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setMissingFields(new Set(['email']));
+      setFormError('メールアドレスの形式が正しくありません。追加・更新できません。');
       return;
     }
     setFormError('');
@@ -177,11 +210,13 @@ export default function Home() {
       place,
       trouble_type: troubleType,
       trouble_detail: troubleDetail,
+      email: email.trim(),
       operation_log: existingLog,
     };
 
-    // リセット前に種別を保持（customer なら直後に再現モックを開く）
+    // リセット前に種別・メールを保持（customer なら直後に再現モックを開く）
     const shouldReproduce = troubleType === 'customer';
+    const ownerEmail = email.trim();
 
     try {
       if (editingId !== null) {
@@ -191,7 +226,7 @@ export default function Home() {
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          throw new Error(`更新に失敗しました (${res.status})`);
+          throw new Error(await readApiError(res, `更新に失敗しました (${res.status})`));
         }
         resetForm();
         await loadSamples();
@@ -202,13 +237,13 @@ export default function Home() {
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          throw new Error(`追加に失敗しました (${res.status})`);
+          throw new Error(await readApiError(res, `追加に失敗しました (${res.status})`));
         }
         const created: Sample = await res.json();
         resetForm();
         // 一覧更新より先にモックを開く（await 失敗で開かない事故を防ぐ）
         if (shouldReproduce && created?.id != null) {
-          setReproduceTarget({ id: created.id, name: created.name });
+          setReproduceTarget({ id: created.id, name: created.name, email: ownerEmail });
         }
         await loadSamples();
       }
@@ -219,13 +254,43 @@ export default function Home() {
   // ===== 変更ここまで =====
 
   const handleDelete = async (id: number) => {
-    await fetch(`${API_BASE_URL}/samples/${id}`, { method: 'DELETE' });
+    const entered = window.prompt(
+      '削除するには、登録時と同じメールアドレスを入力してください。',
+    );
+    if (entered === null) return;
+    const ownerEmail = entered.trim();
+    if (!ownerEmail) {
+      window.alert('メールアドレスが未入力のため、削除できません。');
+      return;
+    }
+
+    const res = await fetch(
+      `${API_BASE_URL}/samples/${id}?email=${encodeURIComponent(ownerEmail)}`,
+      { method: 'DELETE' },
+    );
+    if (!res.ok) {
+      window.alert(await readApiError(res, `削除に失敗しました (${res.status})`));
+      return;
+    }
     // ===== 追加: 編集中の行を消したらフォームもリセット =====
     if (editingId === id) {
       resetForm();
     }
     // ===== 追加ここまで =====
     loadSamples();
+  };
+
+  const handleStartReproduce = (sample: Sample) => {
+    const entered = window.prompt(
+      '操作ログの保存には、登録時と同じメールアドレスが必要です。',
+    );
+    if (entered === null) return;
+    const ownerEmail = entered.trim();
+    if (!ownerEmail) {
+      window.alert('メールアドレスが未入力のため、再現を開始できません。');
+      return;
+    }
+    setReproduceTarget({ id: sample.id, name: sample.name, email: ownerEmail });
   };
 
   return (
@@ -235,6 +300,7 @@ export default function Home() {
         <TerravieReproduce
           sampleId={reproduceTarget.id}
           sampleName={reproduceTarget.name}
+          email={reproduceTarget.email}
           apiBaseUrl={API_BASE_URL}
           onCompleted={() => {
             setReproduceTarget(null);
@@ -249,6 +315,7 @@ export default function Home() {
       <p className="mb-4 text-sm text-gray-600">
         種別が <span className="font-semibold">customer</span> の問い合わせを追加すると、
         アプリ内で Terravie 操作を再現し「トラブル発生を通知」できます。
+        更新・削除・操作ログ保存には、登録時と同じメールアドレスが必要です（一覧には表示しません）。
       </p>
 
       <form onSubmit={handleSearch} className="mb-6 flex flex-col gap-2">
@@ -315,7 +382,7 @@ export default function Home() {
         {/* ===== 追加: 編集モード表示 ===== */}
         {editingId !== null && (
           <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            ID {editingId} を編集中
+            ID {editingId} を編集中 — 登録時と同じメールアドレスを入力してください
           </p>
         )}
         {/* ===== 追加ここまで ===== */}
@@ -330,7 +397,7 @@ export default function Home() {
           </div>
         )}
         <p className="text-xs text-gray-500">
-          必須5項目: 名前・日時・場所・トラブル種別・トラブルの詳細
+          必須6項目: 名前・日時・場所・トラブル種別・トラブルの詳細・メールアドレス
         </p>
         {/* ===== 追加ここまで ===== */}
 
@@ -342,12 +409,7 @@ export default function Home() {
           value={name}
           onChange={(e) => {
             setName(e.target.value);
-            if (formError) setFormError('');
-            setMissingFields((prev) => {
-              const next = new Set(prev);
-              next.delete('name');
-              return next;
-            });
+            clearFieldError('name');
           }}
           aria-invalid={missingFields.has('name')}
           aria-required="true"
@@ -360,12 +422,7 @@ export default function Home() {
           value={date}
           onChange={(e) => {
             setDate(e.target.value);
-            if (formError) setFormError('');
-            setMissingFields((prev) => {
-              const next = new Set(prev);
-              next.delete('date');
-              return next;
-            });
+            clearFieldError('date');
           }}
           aria-label="日時（必須）"
           aria-invalid={missingFields.has('date')}
@@ -379,12 +436,7 @@ export default function Home() {
           value={place}
           onChange={(e) => {
             setPlace(e.target.value);
-            if (formError) setFormError('');
-            setMissingFields((prev) => {
-              const next = new Set(prev);
-              next.delete('place');
-              return next;
-            });
+            clearFieldError('place');
           }}
           aria-invalid={missingFields.has('place')}
           aria-required="true"
@@ -397,12 +449,7 @@ export default function Home() {
           value={troubleType}
           onChange={(e) => {
             setTroubleType(e.target.value);
-            if (formError) setFormError('');
-            setMissingFields((prev) => {
-              const next = new Set(prev);
-              next.delete('troubleType');
-              return next;
-            });
+            clearFieldError('troubleType');
           }}
           aria-label="トラブル種別（必須）"
           aria-invalid={missingFields.has('troubleType')}
@@ -420,15 +467,26 @@ export default function Home() {
           value={troubleDetail}
           onChange={(e) => {
             setTroubleDetail(e.target.value);
-            if (formError) setFormError('');
-            setMissingFields((prev) => {
-              const next = new Set(prev);
-              next.delete('troubleDetail');
-              return next;
-            });
+            clearFieldError('troubleDetail');
           }}
           aria-invalid={missingFields.has('troubleDetail')}
           aria-required="true"
+        />
+        <input
+          type="email"
+          className={`rounded border px-3 py-2 ${
+            missingFields.has('email') ? 'border-red-500 bg-red-50' : 'border-gray-300'
+          }`}
+          placeholder="メールアドレスを入力（必須・一覧非表示）"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            clearFieldError('email');
+          }}
+          aria-label="メールアドレス（必須）"
+          aria-invalid={missingFields.has('email')}
+          aria-required="true"
+          autoComplete="email"
         />
         <div className="flex gap-2">
           <button type="submit" className="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600">
@@ -508,9 +566,7 @@ export default function Home() {
                   {sample.trouble_type === 'customer' && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setReproduceTarget({ id: sample.id, name: sample.name })
-                      }
+                      onClick={() => handleStartReproduce(sample)}
                       className="text-sm text-emerald-700 hover:underline"
                     >
                       再現を記録

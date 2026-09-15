@@ -99,6 +99,8 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
+            /** Email */
+            email: string;
             /** Operation Log */
             operation_log?: string | null;
         };
@@ -116,11 +118,15 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
+            /** Email（照合用） */
+            email: string;
             /** Operation Log */
             operation_log?: string | null;
         };
         /** SamplePartialUpdate */
         SamplePartialUpdate: {
+            /** Email（照合用・必須） */
+            email: string;
             /** Name */
             name?: string | null;
             /**
@@ -335,7 +341,10 @@ export interface operations {
     // ===== 追加ここまで =====
     delete_sample_samples__sample_id__delete: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description 登録時と同じメールアドレス */
+                email: string;
+            };
             header?: never;
             path: {
                 sample_id: number;

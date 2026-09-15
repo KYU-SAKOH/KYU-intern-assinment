@@ -12,6 +12,7 @@ type LogEntry = {
 type TerravieReproduceProps = {
   sampleId: number;
   sampleName: string;
+  email: string;
   apiBaseUrl: string;
   onCompleted: () => void;
   onCancel: () => void;
@@ -48,6 +49,7 @@ const SCREENS: { id: ScreenId; label: string }[] = [
 export default function TerravieReproduce({
   sampleId,
   sampleName,
+  email,
   apiBaseUrl,
   onCompleted,
   onCancel,
@@ -84,10 +86,19 @@ export default function TerravieReproduce({
       const res = await fetch(`${apiBaseUrl}/samples/${sampleId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation_log }),
+        body: JSON.stringify({ email, operation_log }),
       });
       if (!res.ok) {
-        throw new Error(`保存に失敗しました (${res.status})`);
+        let message = `保存に失敗しました (${res.status})`;
+        try {
+          const errBody = await res.json();
+          if (typeof errBody?.detail === 'string') {
+            message = errBody.detail;
+          }
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
       }
       onCompleted();
     } catch (e) {

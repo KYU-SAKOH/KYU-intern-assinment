@@ -43,6 +43,19 @@ def _like_pattern(keyword: str) -> str:
     return f"%{escaped}%"
 
 
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _verify_owner_email(db_sample: SampleModel, email: str) -> None:
+    """登録時と同じメールアドレスでないと更新・削除できない"""
+    if _normalize_email(email) != _normalize_email(db_sample.email):
+        raise HTTPException(
+            status_code=403,
+            detail="メールアドレスが一致しません。登録時と同じメールアドレスが必要です。",
+        )
+
+
 @app.get("/samples", response_model=list[SampleResponse])
 def get_samples(
     q: str | None = Query(None, description="空白区切りのキーワード。AND条件・部分一致"),
@@ -84,7 +97,9 @@ def get_samples(
 @app.post("/samples", response_model=SampleResponse, status_code=201)
 def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     """サンプルを追加する"""
-    db_sample = SampleModel(**sample.model_dump())
+    payload = sample.model_dump()
+    payload["email"] = _normalize_email(payload["email"])
+    db_sample = SampleModel(**payload)
     db.add(db_sample)
     db.commit()
     db.refresh(db_sample)
@@ -96,11 +111,13 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
 def update_sample(
     sample_id: int, sample: SampleUpdate, db: Session = Depends(get_db)
 ):
-    """サンプルを全項目で上書き更新する（PUT）"""
+    """サンプルを全項目で上書き更新する（PUT）。email は照合のみで変更しない。"""
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    for key, value in sample.model_dump().items():
+    data = sample.model_dump()
+    _verify_owner_email(db_sample, data.pop("email"))
+    for key, value in data.items():
         setattr(db_sample, key, value)
     db.commit()
     db.refresh(db_sample)
@@ -111,12 +128,16 @@ def update_sample(
 def partial_update_sample(
     sample_id: int, sample: SamplePartialUpdate, db: Session = Depends(get_db)
 ):
-    """サンプルの一部フィールドだけ更新する（PATCH）"""
+    """サンプルの一部フィールドだけ更新する（PATCH）。email は照合のみで変更しない。"""
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    # exclude_unset=True: リクエストに含まれたフィールドだけ適用
-    for key, value in sample.model_dump(exclude_unset=True).items():
+    data = sample.model_dump(exclude_unset=True)
+    email = data.pop("email", None)
+    if email is None:
+        raise HTTPException(status_code=400, detail="email is required")
+    _verify_owner_email(db_sample, email)
+    for key, value in data.items():
         setattr(db_sample, key, value)
     db.commit()
     db.refresh(db_sample)
@@ -125,10 +146,15 @@ def partial_update_sample(
 
 
 @app.delete("/samples/{sample_id}", status_code=204)
-def delete_sample(sample_id: int, db: Session = Depends(get_db)):
-    """サンプルを削除する"""
+def delete_sample(
+    sample_id: int,
+    email: str = Query(..., description="登録時と同じメールアドレス"),
+    db: Session = Depends(get_db),
+):
+    """サンプルを削除する。登録時と同じメールアドレスが必要。"""
     sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
+    _verify_owner_email(sample, email)
     db.delete(sample)
     db.commit()

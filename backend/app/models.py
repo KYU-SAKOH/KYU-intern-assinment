@@ -22,3 +22,6 @@ class SampleModel(Base):
 
     # 追加: 顧客再現時の操作ログ（トラブル発生通知までに記録した操作）
     operation_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 追加: 登録者メール（一覧には出さず、更新・削除の照合に使う）
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
