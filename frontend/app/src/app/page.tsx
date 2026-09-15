@@ -32,6 +32,12 @@ export default function Home() {
   const [searchTroubleType, setSearchTroubleType] = useState('');
   const [appliedKeyword, setAppliedKeyword] = useState('');
   const [appliedTroubleType, setAppliedTroubleType] = useState('');
+  // ===== 追加: 日付フィルタ（入力中 / 適用済み） =====
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [appliedDateFrom, setAppliedDateFrom] = useState('');
+  const [appliedDateTo, setAppliedDateTo] = useState('');
+  // ===== 追加ここまで =====
 
   const loadSamples = useCallback(async (search = appliedKeyword) => {
     const params = new URLSearchParams();
@@ -41,10 +47,18 @@ export default function Home() {
     if (appliedTroubleType) {
         params.set('trouble_type', appliedTroubleType); // 追加: クエリパラメータ送信
       }
+    // ===== 追加: 日付レンジをクエリに載せる =====
+    if (appliedDateFrom) {
+      params.set('date_from', appliedDateFrom);
+    }
+    if (appliedDateTo) {
+      params.set('date_to', appliedDateTo);
+    }
+    // ===== 追加ここまで =====
     const query = params.toString();
     const res = await fetch(`${API_BASE_URL}/samples${query ? `?${query}` : ''}`);
     setSamples(await res.json());
-  },[appliedKeyword, appliedTroubleType]);
+  },[appliedKeyword, appliedTroubleType, appliedDateFrom, appliedDateTo]);
 
   useEffect(() => {
     loadSamples();
@@ -54,6 +68,10 @@ export default function Home() {
     e.preventDefault();
     setAppliedKeyword(keyword);
     setAppliedTroubleType(searchTroubleType);
+    // ===== 追加: 日付フィルタを適用 =====
+    setAppliedDateFrom(dateFrom);
+    setAppliedDateTo(dateTo);
+    // ===== 追加ここまで =====
   };
 
   const handleClearSearch = () => {
@@ -61,6 +79,12 @@ export default function Home() {
     setAppliedKeyword('');
     setSearchTroubleType('');
     setAppliedTroubleType('');
+    // ===== 追加: 日付フィルタもクリア =====
+    setDateFrom('');
+    setDateTo('');
+    setAppliedDateFrom('');
+    setAppliedDateTo('');
+    // ===== 追加ここまで =====
   };
 
   // ===== 追加: フォームをクリアして新規作成モードに戻す =====
@@ -133,10 +157,10 @@ export default function Home() {
     <main className="mx-auto max-w-lg px-4 py-12">
       <h1 className="mb-6 text-2xl font-bold">Sample App</h1>
 
-      <form onSubmit={handleSearch} className="mb-6 flex gap-2">
-        <div className="flex gap-2">
+      <form onSubmit={handleSearch} className="mb-6 flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
         <input
-          className="flex-1 rounded border border-gray-300 px-3 py-2"
+          className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
           placeholder="キーワードで検索（例: 白浜 パンダ郎）"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
@@ -152,10 +176,35 @@ export default function Home() {
             <option value="stuff">stuff</option>
           </select>
         </div>
+        {/* ===== 追加: 日付レンジフィルタ UI ===== */}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-sm text-gray-600" htmlFor="date-from">
+            期間
+          </label>
+          <input
+            id="date-from"
+            type="date"
+            className="rounded border border-gray-300 px-3 py-2"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="開始日"
+          />
+          <span className="text-sm text-gray-500">〜</span>
+          <input
+            id="date-to"
+            type="date"
+            className="rounded border border-gray-300 px-3 py-2"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="終了日"
+          />
+        </div>
+        {/* ===== 追加ここまで ===== */}
+        <div className="flex gap-2">
         <button type="submit" className="rounded bg-gray-800 px-4 py-2 text-white hover:bg-gray-900">
           検索
         </button>
-        {(appliedKeyword || appliedTroubleType) && (
+        {(appliedKeyword || appliedTroubleType || appliedDateFrom || appliedDateTo) && (
           <button
             type="button"
             onClick={handleClearSearch}
@@ -164,6 +213,7 @@ export default function Home() {
             クリア
           </button>
         )}
+        </div>
       </form>
 
       {/* ===== 変更: 作成/更新兼用フォーム ===== */}
@@ -232,16 +282,23 @@ export default function Home() {
       </form>
       {/* ===== 変更ここまで ===== */}
 
-      {appliedKeyword && (
+      {/* ===== 変更: 日付フィルタも含めた検索結果表示 ===== */}
+      {(appliedKeyword || appliedTroubleType || appliedDateFrom || appliedDateTo) && (
         <p className="mb-3 text-sm text-gray-600">
-          「{appliedKeyword}」の検索結果: {samples.length}件
+          検索結果: {samples.length}件
+          {appliedDateFrom || appliedDateTo
+            ? `（期間: ${appliedDateFrom || '…'} 〜 ${appliedDateTo || '…'}）`
+            : ''}
         </p>
       )}
+      {/* ===== 変更ここまで ===== */}
 
       {/* 一覧表示 */}
       {samples.length === 0 ? (
         <p className="text-sm text-gray-500">
-          {appliedKeyword ? '一致するデータがありません。' : 'まだデータがありません。'}
+          {appliedKeyword || appliedTroubleType || appliedDateFrom || appliedDateTo
+            ? '一致するデータがありません。'
+            : 'まだデータがありません。'}
         </p>
       ) : (
         <ul className="space-y-3">

@@ -2,6 +2,9 @@
 
 import os
 import re
+# ===== 追加: 日付フィルタ用 =====
+from datetime import date, datetime, time
+# ===== 追加ここまで =====
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +47,10 @@ def _like_pattern(keyword: str) -> str:
 def get_samples(
     q: str | None = Query(None, description="空白区切りのキーワード。AND条件・部分一致"),
     trouble_type: str | None = Query(None, description="問題タイプ"),
+    # ===== 追加: 日付レンジフィルタ（YYYY-MM-DD） =====
+    date_from: date | None = Query(None, description="この日以降（含む）"),
+    date_to: date | None = Query(None, description="この日以前（含む）"),
+    # ===== 追加ここまで =====
     db: Session = Depends(get_db),
 ):
     """サンプル一覧を取得する。q があるときは名前・場所をキーワード検索する。"""
@@ -65,6 +72,12 @@ def get_samples(
             )
     if trouble_type and trouble_type.strip():
         query = query.filter(SampleModel.trouble_type == trouble_type)
+    # ===== 追加: 日付で絞り込み（開始日・終了日は両方任意） =====
+    if date_from:
+        query = query.filter(SampleModel.date >= datetime.combine(date_from, time.min))
+    if date_to:
+        query = query.filter(SampleModel.date <= datetime.combine(date_to, time.max))
+    # ===== 追加ここまで =====
     return query.order_by(SampleModel.date.desc()).all()
 
   

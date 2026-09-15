@@ -193,6 +193,14 @@ export interface operations {
             query?: {
                 /** @description 空白区切りのキーワード。AND条件・部分一致 */
                 q?: string | null;
+                /** @description 問題タイプ */
+                trouble_type?: string | null;
+                // ===== 追加: 日付レンジフィルタ =====
+                /** @description この日以降（含む） */
+                date_from?: string | null;
+                /** @description この日以前（含む） */
+                date_to?: string | null;
+                // ===== 追加ここまで =====
             };
             header?: never;
             path?: never;
