@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import SampleModel
-from schemas import SampleCreate, SampleResponse
+from schemas import SampleCreate, SamplePartialUpdate, SampleResponse, SampleUpdate
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
@@ -76,6 +76,39 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_sample)
     return db_sample
+
+
+# ===== 追加: 更新 API（PUT / PATCH） =====
+@app.put("/samples/{sample_id}", response_model=SampleResponse)
+def update_sample(
+    sample_id: int, sample: SampleUpdate, db: Session = Depends(get_db)
+):
+    """サンプルを全項目で上書き更新する（PUT）"""
+    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    for key, value in sample.model_dump().items():
+        setattr(db_sample, key, value)
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+
+@app.patch("/samples/{sample_id}", response_model=SampleResponse)
+def partial_update_sample(
+    sample_id: int, sample: SamplePartialUpdate, db: Session = Depends(get_db)
+):
+    """サンプルの一部フィールドだけ更新する（PATCH）"""
+    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    # exclude_unset=True: リクエストに含まれたフィールドだけ適用
+    for key, value in sample.model_dump(exclude_unset=True).items():
+        setattr(db_sample, key, value)
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+# ===== 追加ここまで =====
 
 
 @app.delete("/samples/{sample_id}", status_code=204)

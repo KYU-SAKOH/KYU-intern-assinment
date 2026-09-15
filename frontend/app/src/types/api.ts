@@ -53,7 +53,13 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        // ===== 追加: PUT 更新 =====
+        /**
+         * Update Sample
+         * @description サンプルを全項目で上書き更新する（PUT）
+         */
+        put: operations["update_sample_samples__sample_id__put"];
+        // ===== 追加ここまで =====
         post?: never;
         /**
          * Delete Sample
@@ -62,7 +68,13 @@ export interface paths {
         delete: operations["delete_sample_samples__sample_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        // ===== 追加: PATCH 部分更新 =====
+        /**
+         * Partial Update Sample
+         * @description サンプルの一部フィールドだけ更新する（PATCH）
+         */
+        patch: operations["partial_update_sample_samples__sample_id__patch"];
+        // ===== 追加ここまで =====
         trace?: never;
     };
 }
@@ -88,6 +100,36 @@ export interface components {
             trouble_type: string;
             trouble_detail: string;
         };
+        // ===== 追加: 更新用スキーマ =====
+        /** SampleUpdate */
+        SampleUpdate: {
+            /** Name */
+            name: string;
+            /**
+             * Date
+             * Format: date-time
+             */
+            date: string;
+            /** Place */
+            place: string;
+            trouble_type: string;
+            trouble_detail: string;
+        };
+        /** SamplePartialUpdate */
+        SamplePartialUpdate: {
+            /** Name */
+            name?: string | null;
+            /**
+             * Date
+             * Format: date-time
+             */
+            date?: string | null;
+            /** Place */
+            place?: string | null;
+            trouble_type?: string | null;
+            trouble_detail?: string | null;
+        };
+        // ===== 追加ここまで =====
         /** SampleResponse */
         SampleResponse: {
             /** Id */
@@ -202,6 +244,79 @@ export interface operations {
             };
         };
     };
+    // ===== 追加: PUT 更新 =====
+    update_sample_samples__sample_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SampleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    // ===== 追加: PATCH 部分更新 =====
+    partial_update_sample_samples__sample_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SamplePartialUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    // ===== 追加ここまで =====
     delete_sample_samples__sample_id__delete: {
         parameters: {
             query?: never;
