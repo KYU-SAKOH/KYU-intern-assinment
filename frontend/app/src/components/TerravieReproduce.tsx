@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 type ScreenId = 'home' | 'ticket' | 'qr' | 'guest' | 'settings';
 
@@ -53,7 +53,10 @@ export default function TerravieReproduce({
   onCancel,
 }: TerravieReproduceProps) {
   const [screen, setScreen] = useState<ScreenId>('home');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>(() => [
+    { at: nowLabel(), action: '再現セッション開始（モック: terravie.co.jp 相当）' },
+    { at: nowLabel(), action: '画面表示: ホーム' },
+  ]);
   const [qrInput, setQrInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -61,13 +64,6 @@ export default function TerravieReproduce({
   const pushLog = (action: string) => {
     setLogs((prev) => [...prev, { at: nowLabel(), action }]);
   };
-
-  useEffect(() => {
-    setLogs([
-      { at: nowLabel(), action: '再現セッション開始（モック: terravie.co.jp 相当）' },
-      { at: nowLabel(), action: '画面表示: ホーム' },
-    ]);
-  }, []);
 
   const goTo = (next: ScreenId) => {
     const label = SCREENS.find((s) => s.id === next)?.label ?? next;

@@ -36,6 +36,11 @@ export default function Home() {
   } | null>(null);
   // ===== 追加ここまで =====
 
+  // ===== 追加: 必須5項目の未入力通知 =====
+  const [formError, setFormError] = useState('');
+  const [missingFields, setMissingFields] = useState<Set<string>>(new Set());
+  // ===== 追加ここまで =====
+
   const [keyword, setKeyword] = useState('');
   const [searchTroubleType, setSearchTroubleType] = useState('');
   const [appliedKeyword, setAppliedKeyword] = useState('');
@@ -103,6 +108,20 @@ export default function Home() {
     setTroubleType('');
     setTroubleDetail('');
     setEditingId(null);
+    setFormError('');
+    setMissingFields(new Set());
+  };
+  // ===== 追加ここまで =====
+
+  // ===== 追加: 必須5項目の欠落チェック =====
+  const getMissingRequiredFields = () => {
+    const missing: { key: string; label: string }[] = [];
+    if (!name.trim()) missing.push({ key: 'name', label: '名前' });
+    if (!date) missing.push({ key: 'date', label: '日時' });
+    if (!place.trim()) missing.push({ key: 'place', label: '場所' });
+    if (!troubleType.trim()) missing.push({ key: 'troubleType', label: 'トラブル種別' });
+    if (!troubleDetail.trim()) missing.push({ key: 'troubleDetail', label: 'トラブルの詳細' });
+    return missing;
   };
   // ===== 追加ここまで =====
 
@@ -114,6 +133,8 @@ export default function Home() {
     setPlace(sample.place);
     setTroubleType(sample.trouble_type);
     setTroubleDetail(sample.trouble_detail);
+    setFormError('');
+    setMissingFields(new Set());
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   // ===== 追加ここまで =====
@@ -121,8 +142,30 @@ export default function Home() {
   // ===== 変更: 新規作成 or PUT 更新を同じフォームで扱う =====
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !date || !place.trim() || !troubleType.trim() || !troubleDetail.trim()) return;
-    const formattedDate = new Date(date).toISOString();
+
+    const missing = getMissingRequiredFields();
+    if (missing.length > 0) {
+      const labels = missing.map((m) => m.label).join('・');
+      setMissingFields(new Set(missing.map((m) => m.key)));
+      setFormError(
+        editingId !== null
+          ? `必須項目（${labels}）が未入力のため、更新できません。5項目すべて入力してください。`
+          : `必須項目（${labels}）が未入力のため、追加できません。5項目すべて入力してください。`,
+      );
+      return;
+    }
+    setFormError('');
+    setMissingFields(new Set());
+
+    // datetime-local 値を安全に ISO へ（不正だと toISOString が落ちてモックまで到達しない）
+    const parsedDate = new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) {
+      setMissingFields(new Set(['date']));
+      setFormError('日時の形式が正しくありません。もう一度選び直してください。追加できません。');
+      return;
+    }
+    const formattedDate = parsedDate.toISOString();
+
     // 編集時は既存の操作ログを消さないよう引き継ぐ
     const existingLog =
       editingId !== null
@@ -137,29 +180,40 @@ export default function Home() {
       operation_log: existingLog,
     };
 
-    if (editingId !== null) {
-      // PUT: 全項目を上書き更新
-      await fetch(`${API_BASE_URL}/samples/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      resetForm();
-      loadSamples();
-    } else {
-      const res = await fetch(`${API_BASE_URL}/samples`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const created: Sample = await res.json();
-      const shouldReproduce = troubleType === 'customer';
-      resetForm();
-      await loadSamples();
-      // 顧客の場合: 追加直後にアプリ内 Terravie 再現 → トラブル発生通知
-      if (shouldReproduce) {
-        setReproduceTarget({ id: created.id, name: created.name });
+    // リセット前に種別を保持（customer なら直後に再現モックを開く）
+    const shouldReproduce = troubleType === 'customer';
+
+    try {
+      if (editingId !== null) {
+        const res = await fetch(`${API_BASE_URL}/samples/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          throw new Error(`更新に失敗しました (${res.status})`);
+        }
+        resetForm();
+        await loadSamples();
+      } else {
+        const res = await fetch(`${API_BASE_URL}/samples`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          throw new Error(`追加に失敗しました (${res.status})`);
+        }
+        const created: Sample = await res.json();
+        resetForm();
+        // 一覧更新より先にモックを開く（await 失敗で開かない事故を防ぐ）
+        if (shouldReproduce && created?.id != null) {
+          setReproduceTarget({ id: created.id, name: created.name });
+        }
+        await loadSamples();
       }
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : '保存に失敗しました');
     }
   };
   // ===== 変更ここまで =====
@@ -257,7 +311,7 @@ export default function Home() {
       </form>
 
       {/* ===== 変更: 作成/更新兼用フォーム ===== */}
-      <form onSubmit={handleSubmit} className="mb-6 flex flex-col gap-2">
+      <form onSubmit={handleSubmit} noValidate className="mb-6 flex flex-col gap-2">
         {/* ===== 追加: 編集モード表示 ===== */}
         {editingId !== null && (
           <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -265,43 +319,116 @@ export default function Home() {
           </p>
         )}
         {/* ===== 追加ここまで ===== */}
+
+        {/* ===== 追加: 必須未入力の明確な通知 ===== */}
+        {formError && (
+          <div
+            role="alert"
+            className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+          >
+            {formError}
+          </div>
+        )}
+        <p className="text-xs text-gray-500">
+          必須5項目: 名前・日時・場所・トラブル種別・トラブルの詳細
+        </p>
+        {/* ===== 追加ここまで ===== */}
+
         <input
-          className="rounded border border-gray-300 px-3 py-2"
-          placeholder="名前を入力"
+          className={`rounded border px-3 py-2 ${
+            missingFields.has('name') ? 'border-red-500 bg-red-50' : 'border-gray-300'
+          }`}
+          placeholder="名前を入力（必須）"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
+          onChange={(e) => {
+            setName(e.target.value);
+            if (formError) setFormError('');
+            setMissingFields((prev) => {
+              const next = new Set(prev);
+              next.delete('name');
+              return next;
+            });
+          }}
+          aria-invalid={missingFields.has('name')}
+          aria-required="true"
         />
         <input
           type="datetime-local"
-          className="rounded border border-gray-300 px-3 py-2"
+          className={`rounded border px-3 py-2 ${
+            missingFields.has('date') ? 'border-red-500 bg-red-50' : 'border-gray-300'
+          }`}
           value={date}
-          onChange={(e) => setDate(e.target.value)}
-          required
+          onChange={(e) => {
+            setDate(e.target.value);
+            if (formError) setFormError('');
+            setMissingFields((prev) => {
+              const next = new Set(prev);
+              next.delete('date');
+              return next;
+            });
+          }}
+          aria-label="日時（必須）"
+          aria-invalid={missingFields.has('date')}
+          aria-required="true"
         />
         <input
-          className="rounded border border-gray-300 px-3 py-2"
-          placeholder="場所を入力"
+          className={`rounded border px-3 py-2 ${
+            missingFields.has('place') ? 'border-red-500 bg-red-50' : 'border-gray-300'
+          }`}
+          placeholder="場所を入力（必須）"
           value={place}
-          onChange={(e) => setPlace(e.target.value)}
-          required
+          onChange={(e) => {
+            setPlace(e.target.value);
+            if (formError) setFormError('');
+            setMissingFields((prev) => {
+              const next = new Set(prev);
+              next.delete('place');
+              return next;
+            });
+          }}
+          aria-invalid={missingFields.has('place')}
+          aria-required="true"
         />
         {/* 追加: プルダウン (customer / stuff) */}
         <select
-          className="rounded border border-gray-300 px-3 py-2 bg-white"
+          className={`rounded border px-3 py-2 bg-white ${
+            missingFields.has('troubleType') ? 'border-red-500 bg-red-50' : 'border-gray-300'
+          }`}
           value={troubleType}
-          onChange={(e) => setTroubleType(e.target.value)}
+          onChange={(e) => {
+            setTroubleType(e.target.value);
+            if (formError) setFormError('');
+            setMissingFields((prev) => {
+              const next = new Set(prev);
+              next.delete('troubleType');
+              return next;
+            });
+          }}
+          aria-label="トラブル種別（必須）"
+          aria-invalid={missingFields.has('troubleType')}
+          aria-required="true"
         >
-          <option value="">トラブル種別を選択</option>
+          <option value="">トラブル種別を選択（必須）</option>
           <option value="customer">customer</option>
           <option value="stuff">stuff</option>
         </select>
         <input
-          className="rounded border border-gray-300 px-3 py-2"
-          placeholder="トラブルの詳細を入力"
+          className={`rounded border px-3 py-2 ${
+            missingFields.has('troubleDetail') ? 'border-red-500 bg-red-50' : 'border-gray-300'
+          }`}
+          placeholder="トラブルの詳細を入力（必須）"
           value={troubleDetail}
-          onChange={(e) => setTroubleDetail(e.target.value)}
-          required
+          onChange={(e) => {
+            setTroubleDetail(e.target.value);
+            if (formError) setFormError('');
+            setMissingFields((prev) => {
+              const next = new Set(prev);
+              next.delete('troubleDetail');
+              return next;
+            });
+          }}
+          aria-invalid={missingFields.has('troubleDetail')}
+          aria-required="true"
         />
         <div className="flex gap-2">
           <button type="submit" className="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600">
