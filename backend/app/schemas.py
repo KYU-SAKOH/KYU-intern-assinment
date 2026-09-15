@@ -1,24 +1,39 @@
-"""サンプル関連のPydanticスキーマ"""
+"""
+Pydantic スキーマ（API の入出力の形）
+
+models.py  … DB に保存する形（SQLAlchemy）
+schemas.py … HTTP で受け取る / 返す形（Pydantic）
+
+分けておく理由の例:
+  - リクエストでは email が必須でも、レスポンスでは email を返したくない
+  - PUT と PATCH で「全部必須」か「一部だけ」かを変えたい
+"""
+
+from datetime import datetime
 
 from pydantic import BaseModel, Field
-from datetime import datetime
 
 
 class SampleCreate(BaseModel):
+    """POST /samples のリクエストボディ（新規作成）。"""
+
     name: str
     date: datetime
     place: str
     trouble_type: str
     trouble_detail: str
-    # 追加: 登録者メール（必須。更新・削除時の照合キー）
+    # 登録者メール（必須。あとで更新・削除の照合キーになる）
     email: str = Field(min_length=3, max_length=255)
-    # 追加: 操作ログ（顧客再現フローで後から PATCH することも多い）
+    # 操作ログは後から PATCH することが多いので、作成時は省略可
     operation_log: str | None = None
 
 
-# ===== 追加: 更新用スキーマ（PUT = 全項目 / PATCH = 一部だけ） =====
 class SampleUpdate(BaseModel):
-    """PUT用: 全フィールドを送り直す。email は照合用（変更不可）"""
+    """
+    PUT /samples/{id} 用。
+    全フィールドを送り直す前提。email は照合用で、サーバ側では変更しない。
+    """
+
     name: str
     date: datetime
     place: str
@@ -29,7 +44,14 @@ class SampleUpdate(BaseModel):
 
 
 class SamplePartialUpdate(BaseModel):
-    """PATCH用: 送ったフィールドだけ更新する。email は必須（照合用）"""
+    """
+    PATCH /samples/{id} 用。
+    送ったフィールドだけ更新する。email だけは必ず必要（本人確認）。
+
+    例（操作ログだけ更新）:
+      { "email": "a@example.com", "operation_log": "..." }
+    """
+
     email: str = Field(min_length=3, max_length=255)
     name: str | None = None
     date: datetime | None = None
@@ -37,11 +59,14 @@ class SamplePartialUpdate(BaseModel):
     trouble_type: str | None = None
     trouble_detail: str | None = None
     operation_log: str | None = None
-# ===== 追加ここまで =====
 
 
 class SampleResponse(BaseModel):
-    """一覧・詳細用。email は含めない（画面にも返さない）"""
+    """
+    一覧・詳細のレスポンス。
+    email は意図的に含めていない（画面にも返さない）。
+    """
+
     id: int
     name: str
     date: datetime
@@ -50,4 +75,5 @@ class SampleResponse(BaseModel):
     trouble_detail: str
     operation_log: str | None = None
 
+    # ORM オブジェクト（SampleModel）から自動でフィールドを読めるようにする設定
     model_config = {"from_attributes": True}

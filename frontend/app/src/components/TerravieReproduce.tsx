@@ -2,22 +2,25 @@
 
 import { useState } from 'react';
 
+// モック内の画面 ID（ナビで切り替える）
 type ScreenId = 'home' | 'ticket' | 'qr' | 'guest' | 'settings';
 
+// 1行分の操作ログ（時刻 + 何をしたか）
 type LogEntry = {
   at: string;
   action: string;
 };
 
 type TerravieReproduceProps = {
-  sampleId: number;
+  sampleId: number; // どの問い合わせにログを紐づけるか
   sampleName: string;
-  email: string;
+  email: string; // 本人確認用（PATCH 時にバックエンドで照合）
   apiBaseUrl: string;
-  onCompleted: () => void;
-  onCancel: () => void;
+  onCompleted: () => void; // 保存成功後（親がオーバーレイを閉じる）
+  onCancel: () => void; // 閉じる（ログは保存しない）
 };
 
+/** ログ用の「いま」の時刻を日本語表記で返す */
 function nowLabel(): string {
   return new Date().toLocaleString('ja-JP', {
     year: 'numeric',
@@ -29,6 +32,7 @@ function nowLabel(): string {
   });
 }
 
+/** 配列のログを、DB に保存する1本の文字列にまとめる */
 function formatLog(entries: LogEntry[]): string {
   return entries.map((e) => `[${e.at}] ${e.action}`).join('\n');
 }
@@ -42,9 +46,14 @@ const SCREENS: { id: ScreenId; label: string }[] = [
 ];
 
 /**
- * 顧客問い合わせ用: アプリ内で Terravie 操作を再現し、
- * 「トラブル発生を通知」押下時点までの操作ログを保存する。
- * （実サイトは iframe 制限があるため、再現用モック画面を用意）
+ * Terravie 再現オーバーレイ（Customer 向け）
+ *
+ * 実サイト terravie.co.jp は iframe 埋め込みが制限されることが多いため、
+ * 「似た操作ができるモック画面」をアプリ内に用意している。
+ *
+ * 流れ:
+ *  1. ユーザーがモック内でタップ・遷移するたびにログを溜める
+ *  2. 「トラブル発生を通知」で、その時点までのログを PATCH で保存
  */
 export default function TerravieReproduce({
   sampleId,
@@ -55,24 +64,32 @@ export default function TerravieReproduce({
   onCancel,
 }: TerravieReproduceProps) {
   const [screen, setScreen] = useState<ScreenId>('home');
+  // 開始時点のログを初期値として入れておく
   const [logs, setLogs] = useState<LogEntry[]>(() => [
     { at: nowLabel(), action: '再現セッション開始（モック: terravie.co.jp 相当）' },
     { at: nowLabel(), action: '画面表示: ホーム' },
   ]);
   const [qrInput, setQrInput] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(false); // 二重送信防止
   const [error, setError] = useState('');
 
+  /** 操作ログを1行追加（prev をコピーして末尾に足す） */
   const pushLog = (action: string) => {
     setLogs((prev) => [...prev, { at: nowLabel(), action }]);
   };
 
+  /** モック内の画面切り替え + 遷移ログ */
   const goTo = (next: ScreenId) => {
     const label = SCREENS.find((s) => s.id === next)?.label ?? next;
     setScreen(next);
     pushLog(`画面遷移 → ${label}`);
   };
 
+  /**
+   * 「トラブル発生を通知」
+   * 今までのログ + 通知ボタン押下をまとめて PATCH /samples/{id} で保存する。
+   * email は照合用（一覧には出さない）。
+   */
   const handleNotifyTrouble = async () => {
     setSubmitting(true);
     setError('');
@@ -96,11 +113,11 @@ export default function TerravieReproduce({
             message = errBody.detail;
           }
         } catch {
-          /* ignore */
+          /* JSON でない応答なら上の message を使う */
         }
         throw new Error(message);
       }
-      onCompleted();
+      onCompleted(); // 親側で閉じる + 一覧再読込
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存に失敗しました');
       setSubmitting(false);
@@ -108,9 +125,10 @@ export default function TerravieReproduce({
   };
 
   return (
+    // fixed inset-0 … 画面全体を覆うオーバーレイ
     <div className="fixed inset-0 z-50 flex flex-col bg-black/40">
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col bg-white shadow-xl">
-        {/* ヘッダー */}
+        {/* ===== ヘッダー（説明 + 閉じる） ===== */}
         <div className="flex items-start justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-3">
           <div>
             <p className="text-xs font-semibold tracking-wide text-emerald-700">
@@ -140,8 +158,9 @@ export default function TerravieReproduce({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          {/* モック本体 */}
+          {/* ===== 左: Terravie 風モック本体 ===== */}
           <div className="flex min-h-0 flex-1 flex-col border-b border-gray-200 md:border-b-0 md:border-r">
+            {/* 画面切り替えナビ（押すたびに goTo → ログ追加） */}
             <nav className="flex flex-wrap gap-1 border-b border-gray-200 bg-emerald-800 px-2 py-2">
               {SCREENS.map((s) => (
                 <button

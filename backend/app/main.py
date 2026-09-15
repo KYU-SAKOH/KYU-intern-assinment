@@ -1,10 +1,16 @@
-"""サンプル CRUD API"""
+"""
+サンプル CRUD API（バックエンドの入り口）
+
+フロントエンド（Next.js）からの HTTP リクエストを受け取り、
+データベース（MySQL）の問い合わせデータ（samples）を操作する。
+
+役割のイメージ:
+  ブラウザ → FastAPI（このファイル） → SQLAlchemy → MySQL
+"""
 
 import os
 import re
-# ===== 追加: 日付フィルタ用 =====
 from datetime import date, datetime, time
-# ===== 追加ここまで =====
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,11 +21,14 @@ from database import get_db
 from models import SampleModel
 from schemas import SampleCreate, SamplePartialUpdate, SampleResponse, SampleUpdate
 
+# フロントの URL（CORS で「このオリジンからはアクセスOK」と許可する）
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
+# FastAPI アプリ本体。@app.get / @app.post などで「URL と処理」を結びつける
 app = FastAPI(title="Sample API", version="1.0.0")
 
-# CORS設定（フロントエンドからのアクセスを許可）
+# CORS: ブラウザは別オリジン（例: :3000 → :8000）への通信を標準では拒否する。
+# ここでフロントのオリジンを許可して、fetch が通るようにする。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -31,24 +40,33 @@ app.add_middleware(
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy"}
+    """動作確認用。ブラウザで http://localhost:8000/ を開くと healthy が返る。"""
+    return {"status": "healthyやでー"}
 
 
-# ---------- Samples CRUD （サンプル） ----------
+# ---------- Samples CRUD（問い合わせデータの作成・読取・更新・削除） ----------
 
 
 def _like_pattern(keyword: str) -> str:
-    """ユーザー入力の % や _ をリテラルとして扱い、部分一致用のパターンにする"""
+    """
+    SQL の LIKE 用パターンを作る。
+    ユーザーが入力した % や _ を「特殊文字」ではなく普通の文字として扱う。
+    前後に % を付けて「部分一致」（含む検索）にする。
+    """
     escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
 
 
 def _normalize_email(email: str) -> str:
+    """比較しやすくするため、前後空白を除去して小文字にそろえる。"""
     return email.strip().lower()
 
 
 def _verify_owner_email(db_sample: SampleModel, email: str) -> None:
-    """登録時と同じメールアドレスでないと更新・削除できない"""
+    """
+    登録時のメールと一致するか確認する。
+    一致しなければ 403（Forbidden）を返す → 他人のデータを勝手に更新・削除できない。
+    """
     if _normalize_email(email) != _normalize_email(db_sample.email):
         raise HTTPException(
             status_code=403,
@@ -58,24 +76,28 @@ def _verify_owner_email(db_sample: SampleModel, email: str) -> None:
 
 @app.get("/samples", response_model=list[SampleResponse])
 def get_samples(
+    # Query(...) … URL の ?q=...&trouble_type=... のようなクエリパラメータ
     q: str | None = Query(None, description="空白区切りのキーワード。AND条件・部分一致"),
-    trouble_type: str | None = Query(None, description="問題タイプ"),
-    # ===== 追加: 日付レンジフィルタ（YYYY-MM-DD） =====
+    trouble_type: str | None = Query(None, description="問題タイプ（customer / stuff）"),
     date_from: date | None = Query(None, description="この日以降（含む）"),
     date_to: date | None = Query(None, description="この日以前（含む）"),
-    # ===== 追加ここまで =====
+    # Depends(get_db) … リクエストごとに DB セッションを用意し、終わったら閉じる
     db: Session = Depends(get_db),
 ):
-    """サンプル一覧を取得する。q があるときは名前・場所をキーワード検索する。"""
+    """
+    問い合わせ一覧を取得する（GET /samples）。
+
+    フロントの Customer 画面は trouble_type=customer を付けて呼び、
+    Staff 画面は付けない（全件）か、絞り込み時だけ付ける。
+    """
     query = db.query(SampleModel)
 
+    # --- キーワード検索（名前・場所・詳細のいずれかに部分一致。複数語は AND） ---
     if q and q.strip():
         # 半角・全角スペースで分割し、空文字は捨てる
         keywords = [k for k in re.split(r"[\s\u3000]+", q.strip()) if k]
         for keyword in keywords:
             pattern = _like_pattern(keyword)
-            # 1キーワードは「名前または場所」に部分一致すればヒット
-            # 複数キーワードはすべて満たす（AND）
             query = query.filter(
                 or_(
                     SampleModel.name.like(pattern, escape="\\"),
@@ -83,42 +105,61 @@ def get_samples(
                     SampleModel.trouble_detail.like(pattern, escape="\\"),
                 )
             )
+
+    # --- トラブル種別で絞り込み ---
     if trouble_type and trouble_type.strip():
         query = query.filter(SampleModel.trouble_type == trouble_type)
-    # ===== 追加: 日付で絞り込み（開始日・終了日は両方任意） =====
+
+    # --- 日付レンジ（開始日・終了日はどちらも任意） ---
+    # date 型（日付だけ）を datetime の 0:00 / 23:59:59 に広げて比較する
     if date_from:
         query = query.filter(SampleModel.date >= datetime.combine(date_from, time.min))
     if date_to:
         query = query.filter(SampleModel.date <= datetime.combine(date_to, time.max))
-    # ===== 追加ここまで =====
+
+    # 新しい日時が上に来るように並べて返す
+    # response_model=SampleResponse のため、email はレスポンスに含まれない
     return query.order_by(SampleModel.date.desc()).all()
 
-  
+
 @app.post("/samples", response_model=SampleResponse, status_code=201)
 def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
-    """サンプルを追加する"""
-    payload = sample.model_dump()
+    """
+    問い合わせを新規追加する（POST /samples）。
+
+    引数 sample は JSON ボディ。FastAPI が SampleCreate スキーマで形をチェックする。
+    201 = Created（作成成功）のステータスコード。
+    """
+    payload = sample.model_dump()  # Pydantic → 普通の dict
     payload["email"] = _normalize_email(payload["email"])
-    db_sample = SampleModel(**payload)
-    db.add(db_sample)
-    db.commit()
-    db.refresh(db_sample)
+    db_sample = SampleModel(**payload)  # ORM の1行分のオブジェクトを作る
+    db.add(db_sample)  # 「追加予定」としてセッションに載せる
+    db.commit()  # 実際に DB へ書き込む
+    db.refresh(db_sample)  # DB が採番した id などを読み直す
     return db_sample
 
 
-# ===== 追加: 更新 API（PUT / PATCH） =====
 @app.put("/samples/{sample_id}", response_model=SampleResponse)
 def update_sample(
     sample_id: int, sample: SampleUpdate, db: Session = Depends(get_db)
 ):
-    """サンプルを全項目で上書き更新する（PUT）。email は照合のみで変更しない。"""
+    """
+    問い合わせを全項目で上書きする（PUT /samples/{id}）。
+
+    email は「本人確認」にだけ使い、DB 上のメールは変更しない。
+    （data.pop("email") で更新対象から外している）
+    """
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
+
     data = sample.model_dump()
     _verify_owner_email(db_sample, data.pop("email"))
+
+    # 送られてきた各フィールドを ORM オブジェクトにセット
     for key, value in data.items():
         setattr(db_sample, key, value)
+
     db.commit()
     db.refresh(db_sample)
     return db_sample
@@ -128,30 +169,43 @@ def update_sample(
 def partial_update_sample(
     sample_id: int, sample: SamplePartialUpdate, db: Session = Depends(get_db)
 ):
-    """サンプルの一部フィールドだけ更新する（PATCH）。email は照合のみで変更しない。"""
+    """
+    問い合わせの一部だけ更新する（PATCH /samples/{id}）。
+
+    Terravie 再現画面の「トラブル発生を通知」はここを使い、
+    operation_log だけ送る（他フィールドは触らない）。
+
+    exclude_unset=True … 「送られなかったフィールド」は更新対象にしない。
+    """
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
+
     data = sample.model_dump(exclude_unset=True)
     email = data.pop("email", None)
     if email is None:
         raise HTTPException(status_code=400, detail="email is required")
     _verify_owner_email(db_sample, email)
+
     for key, value in data.items():
         setattr(db_sample, key, value)
+
     db.commit()
     db.refresh(db_sample)
     return db_sample
-# ===== 追加ここまで =====
 
 
 @app.delete("/samples/{sample_id}", status_code=204)
 def delete_sample(
     sample_id: int,
+    # ボディではなくクエリ ?email=... で受け取る（フロントの DELETE 実装に合わせている）
     email: str = Query(..., description="登録時と同じメールアドレス"),
     db: Session = Depends(get_db),
 ):
-    """サンプルを削除する。登録時と同じメールアドレスが必要。"""
+    """
+    問い合わせを削除する（DELETE /samples/{id}?email=...）。
+    204 = No Content（成功したが返すボディは無い）。
+    """
     sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
