@@ -3,6 +3,13 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import {
+  statusBadgeClass,
+  statusLabelJa,
+  type SampleStatus,
+  toSampleStatus,
+} from '@/lib/sampleStatus';
+
 /**
  * トップページ（ / ）… AI トリアージ + 一時保存一覧
  */
@@ -15,7 +22,8 @@ type PageView =
   | 'home'
   | 'triageResult'
   | 'unresolvedChoice'
-  | 'detailForm';
+  | 'detailForm'
+  | 'editRegistered';
 
 type SimilarSample = {
   id: number;
@@ -45,6 +53,26 @@ type DraftSample = {
   error_code?: string | null;
   is_draft?: boolean;
 };
+
+type RegisteredSample = {
+  id: number;
+  name: string;
+  date: string;
+  place: string;
+  trouble_type: string;
+  trouble_detail: string;
+  expected_actions?: string | null;
+  actual_actions?: string | null;
+  error_code?: string | null;
+  ai_initial_response?: string | null;
+  operation_log?: string | null;
+  status?: SampleStatus;
+};
+
+function canEditRegisteredStatus(status: string | null | undefined): boolean {
+  const s = toSampleStatus(status);
+  return s === 'Pending' || s === 'Temporarily Resolved';
+}
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -81,6 +109,19 @@ export default function Home() {
   const [draftKeyword, setDraftKeyword] = useState('');
   const [appliedDraftKeyword, setAppliedDraftKeyword] = useState('');
 
+  const [registered, setRegistered] = useState<RegisteredSample[]>([]);
+  const [registeredKeyword, setRegisteredKeyword] = useState('');
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [appliedRegisteredKeyword, setAppliedRegisteredKeyword] = useState('');
+  const [appliedRegisteredEmail, setAppliedRegisteredEmail] = useState('');
+
+  const [selectedRegistered, setSelectedRegistered] = useState<RegisteredSample | null>(
+    null,
+  );
+  const [editExpected, setEditExpected] = useState('');
+  const [editActual, setEditActual] = useState('');
+  const [editErrorCode, setEditErrorCode] = useState('');
+
   const [name, setName] = useState('');
   const [place, setPlace] = useState('');
   const [troubleType, setTroubleType] = useState<TroubleType | ''>('');
@@ -108,9 +149,23 @@ export default function Home() {
     }
   }, [appliedDraftKeyword]);
 
+  const loadRegistered = useCallback(
+    async (q = appliedRegisteredKeyword, ownerEmail = appliedRegisteredEmail) => {
+      const params = new URLSearchParams({ is_draft: 'false' });
+      if (q.trim()) params.set('q', q.trim());
+      if (ownerEmail.trim()) params.set('email', ownerEmail.trim());
+      const res = await fetch(`${API_BASE_URL}/samples?${params.toString()}`);
+      if (res.ok) {
+        setRegistered(await res.json());
+      }
+    },
+    [appliedRegisteredKeyword, appliedRegisteredEmail],
+  );
+
   useEffect(() => {
     loadDrafts();
-  }, [loadDrafts]);
+    loadRegistered();
+  }, [loadDrafts, loadRegistered]);
 
   const resetTriageSession = () => {
     setExpectedActions('');
@@ -168,9 +223,22 @@ export default function Home() {
     }
   };
 
+  const goHome = () => {
+    setSelectedRegistered(null);
+    setEditExpected('');
+    setEditActual('');
+    setEditErrorCode('');
+    setActionError('');
+    setActionSuccess('');
+    setView('home');
+    loadDrafts();
+    loadRegistered();
+  };
+
   const handleResolved = () => {
     resetTriageSession();
     loadDrafts();
+    loadRegistered();
   };
 
   const handleUnresolved = () => {
@@ -296,11 +364,126 @@ export default function Home() {
       }
       resetTriageSession();
       await loadDrafts();
+      await loadRegistered();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : '登録に失敗しました。');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const openRegisteredSample = (sample: RegisteredSample) => {
+    setSelectedRegistered(sample);
+    setEditExpected(sample.expected_actions ?? '');
+    setEditActual(sample.actual_actions ?? '');
+    setEditErrorCode(sample.error_code ?? '');
+    setName(sample.name);
+    setPlace(sample.place);
+    setTroubleType(
+      sample.trouble_type === 'stuff' ? 'stuff' : 'customer',
+    );
+    setEmail('');
+    setActionError('');
+    setActionSuccess('');
+    setView('editRegistered');
+  };
+
+  const handleRegisteredSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError('');
+    setActionSuccess('');
+    if (!selectedRegistered || !canEditRegisteredStatus(selectedRegistered.status)) {
+      return;
+    }
+    if (
+      !name.trim() ||
+      !place.trim() ||
+      !troubleType ||
+      !email.trim() ||
+      !editExpected.trim() ||
+      !editActual.trim()
+    ) {
+      setActionError('報告者名・場所・種別・メール・期待結果・実際の結果は必須です。');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setActionError('メールアドレスの形式が正しくありません。');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/samples/${selectedRegistered.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          date: selectedRegistered.date,
+          place: place.trim(),
+          trouble_type: troubleType,
+          trouble_detail: selectedRegistered.trouble_detail ?? '',
+          email: email.trim(),
+          operation_log: selectedRegistered.operation_log ?? null,
+          expected_actions: editExpected.trim(),
+          actual_actions: editActual.trim(),
+          error_code: editErrorCode.trim() || null,
+          ai_initial_response: selectedRegistered.ai_initial_response ?? null,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `更新に失敗しました (${res.status})`));
+      }
+      setActionSuccess('更新しました。');
+      goHome();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '更新に失敗しました。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRegisteredDelete = async () => {
+    if (!selectedRegistered || !canEditRegisteredStatus(selectedRegistered.status)) {
+      return;
+    }
+    if (!email.trim()) {
+      setActionError('削除には登録時のメールアドレスが必要です。');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setActionError('メールアドレスの形式が正しくありません。');
+      return;
+    }
+    if (
+      !window.confirm(
+        `サンプル #${selectedRegistered.id} を削除します。よろしいですか？`,
+      )
+    ) {
+      return;
+    }
+
+    setSubmitting(true);
+    setActionError('');
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/samples/${selectedRegistered.id}?email=${encodeURIComponent(email.trim())}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `削除に失敗しました (${res.status})`));
+      }
+      goHome();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '削除に失敗しました。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRegisteredSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAppliedRegisteredKeyword(registeredKeyword);
+    setAppliedRegisteredEmail(registeredEmail);
   };
 
   const handleDraftSearch = (e: React.FormEvent) => {
@@ -470,6 +653,140 @@ export default function Home() {
         </section>
       )}
 
+      {view === 'editRegistered' && selectedRegistered && (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold">サンプル #{selectedRegistered.id}</h2>
+            <span
+              className={`rounded px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(selectedRegistered.status)}`}
+            >
+              ステータス: {statusLabelJa(selectedRegistered.status)}
+            </span>
+          </div>
+          <p className="text-sm text-gray-600">
+            日時: {new Date(selectedRegistered.date).toLocaleString('ja-JP')}
+          </p>
+
+          {canEditRegisteredStatus(selectedRegistered.status) ? (
+            <form onSubmit={handleRegisteredSave} className="flex flex-col gap-2 text-sm">
+              <label className="flex flex-col gap-1">
+                <span className="font-semibold">実施した操作と期待結果 *</span>
+                <textarea
+                  value={editExpected}
+                  onChange={(e) => setEditExpected(e.target.value)}
+                  rows={3}
+                  className="rounded border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-semibold">実施した操作と実際の結果 *</span>
+                <textarea
+                  value={editActual}
+                  onChange={(e) => setEditActual(e.target.value)}
+                  rows={3}
+                  className="rounded border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-semibold">エラーコード（任意）</span>
+                <input
+                  type="text"
+                  value={editErrorCode}
+                  onChange={(e) => setEditErrorCode(e.target.value)}
+                  className="rounded border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="報告者名 *"
+                className="rounded border border-gray-300 px-3 py-2"
+              />
+              <input
+                type="text"
+                value={place}
+                onChange={(e) => setPlace(e.target.value)}
+                placeholder="発生場所 *"
+                className="rounded border border-gray-300 px-3 py-2"
+              />
+              <select
+                value={troubleType}
+                onChange={(e) => setTroubleType(e.target.value as TroubleType | '')}
+                className="rounded border border-gray-300 px-3 py-2"
+              >
+                <option value="">種別を選択 *</option>
+                <option value="customer">customer</option>
+                <option value="stuff">stuff</option>
+              </select>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="登録時メール（保存・削除の確認用）*"
+                className="rounded border border-gray-300 px-3 py-2"
+              />
+              {actionError && <p className="text-sm text-red-700">{actionError}</p>}
+              {actionSuccess && <p className="text-sm text-emerald-700">{actionSuccess}</p>}
+              <div className="mt-2 flex flex-wrap gap-3">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                >
+                  {submitting ? '保存中…' : '保存'}
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleRegisteredDelete}
+                  className="rounded border border-red-600 bg-white px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                >
+                  削除
+                </button>
+                <button
+                  type="button"
+                  onClick={goHome}
+                  className="text-sm text-gray-600 underline"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-3 rounded border border-gray-200 bg-gray-50 px-4 py-4 text-sm">
+              <p className="text-gray-600">
+                完全対応済みのため、内容の編集・削除はできません。
+              </p>
+              {selectedRegistered.actual_actions && (
+                <p>
+                  <span className="font-semibold text-gray-700">実際の結果: </span>
+                  {selectedRegistered.actual_actions}
+                </p>
+              )}
+              {selectedRegistered.expected_actions && (
+                <p>
+                  <span className="font-semibold text-gray-700">期待結果: </span>
+                  {selectedRegistered.expected_actions}
+                </p>
+              )}
+              <p>
+                <span className="font-semibold text-gray-700">報告者: </span>
+                {selectedRegistered.name} / {selectedRegistered.place} /{' '}
+                {selectedRegistered.trouble_type}
+              </p>
+              <button
+                type="button"
+                onClick={goHome}
+                className="text-sm text-gray-600 underline"
+              >
+                戻る
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
       {view === 'detailForm' && detailContext && (
         <section className="space-y-4">
           <div className="rounded border border-gray-200 bg-white px-4 py-3 text-sm">
@@ -598,6 +915,79 @@ export default function Home() {
                       <p className="mt-1 text-xs text-gray-600">エラー: {draft.error_code}</p>
                     )}
                     <p className="mt-2 text-xs text-amber-800">クリックして詳細を入力</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {view === 'home' && (
+        <section className="mt-10 border-t border-gray-200 pt-8">
+          <h2 className="mb-3 text-lg font-semibold">登録済みサンプル</h2>
+          <form onSubmit={handleRegisteredSearch} className="mb-4 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="search"
+              value={registeredKeyword}
+              onChange={(e) => setRegisteredKeyword(e.target.value)}
+              placeholder="キーワードで検索"
+              className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+            />
+            <input
+              type="email"
+              value={registeredEmail}
+              onChange={(e) => setRegisteredEmail(e.target.value)}
+              placeholder="登録時メールで絞り込み"
+              className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              className="rounded bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
+            >
+              検索
+            </button>
+          </form>
+          {registered.length === 0 ? (
+            <p className="text-sm text-gray-600">登録済みサンプルはありません。</p>
+          ) : (
+            <ul className="space-y-3">
+              {registered.map((sample) => (
+                <li key={sample.id}>
+                  <button
+                    type="button"
+                    onClick={() => openRegisteredSample(sample)}
+                    className="w-full rounded border border-gray-200 bg-white px-4 py-3 text-left text-sm shadow-sm hover:bg-gray-50"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-gray-500">#{sample.id}</span>
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(sample.status)}`}
+                      >
+                        ステータス: {statusLabelJa(sample.status)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      <span className="font-medium text-gray-600">日時: </span>
+                      {new Date(sample.date).toLocaleString('ja-JP')}
+                    </p>
+                    {sample.actual_actions && (
+                      <p className="mt-2">
+                        <span className="font-medium text-gray-700">実際の結果: </span>
+                        <span className="text-gray-800">{sample.actual_actions}</span>
+                      </p>
+                    )}
+                    {!sample.actual_actions && sample.expected_actions && (
+                      <p className="mt-2">
+                        <span className="font-medium text-gray-700">期待結果: </span>
+                        <span className="text-gray-800">{sample.expected_actions}</span>
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-gray-500">
+                      {canEditRegisteredStatus(sample.status)
+                        ? 'クリックして確認・編集'
+                        : 'クリックして確認（閲覧のみ）'}
+                    </p>
                   </button>
                 </li>
               ))}

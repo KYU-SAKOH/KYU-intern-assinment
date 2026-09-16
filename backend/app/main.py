@@ -108,6 +108,10 @@ def get_samples(
         None,
         description="true=一時保存のみ, false=本登録のみ, 省略=本登録のみ（Customer/Staff 既定）",
     ),
+    email: str | None = Query(
+        None,
+        description="登録時メールで絞り込み（トップページの「自分のサンプル」検索用）",
+    ),
     # Depends(get_db) … リクエストごとに DB セッションを用意し、終わったら閉じる
     db: Session = Depends(get_db),
 ):
@@ -142,6 +146,10 @@ def get_samples(
                     SampleModel.error_code.like(pattern, escape="\\"),
                 )
             )
+
+    # --- 登録者メールで絞り込み（レスポンスには email を含めない） ---
+    if email and email.strip():
+        query = query.filter(SampleModel.email == _normalize_email(email))
 
     # --- トラブル種別で絞り込み ---
     if trouble_type and trouble_type.strip():

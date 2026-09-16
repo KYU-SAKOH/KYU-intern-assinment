@@ -245,6 +245,8 @@ export interface operations {
                 date_to?: string | null;
                 /** @description true=一時保存のみ, false=本登録のみ */
                 is_draft?: boolean | null;
+                /** @description 登録時メールで絞り込み */
+                email?: string | null;
                 // ===== 追加ここまで =====
             };
             header?: never;
