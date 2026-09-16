@@ -511,6 +511,19 @@ export default function Home() {
     setAppliedRegisteredDateTo(registeredDateTo);
   };
 
+  const handleRegisteredSearchClear = () => {
+    setRegisteredKeyword('');
+    setRegisteredEmail('');
+    setRegisteredStatus('');
+    setRegisteredDateFrom('');
+    setRegisteredDateTo('');
+    setAppliedRegisteredKeyword('');
+    setAppliedRegisteredEmail('');
+    setAppliedRegisteredStatus('');
+    setAppliedRegisteredDateFrom('');
+    setAppliedRegisteredDateTo('');
+  };
+
   const handleDraftSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setAppliedDraftKeyword(draftKeyword);
@@ -1016,6 +1029,13 @@ export default function Home() {
                 className="rounded bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
               >
                 検索
+              </button>
+              <button
+                type="button"
+                onClick={handleRegisteredSearchClear}
+                className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                クリア
               </button>
             </div>
           </form>
