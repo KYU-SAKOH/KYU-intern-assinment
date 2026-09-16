@@ -10,7 +10,7 @@ import Link from 'next/link';
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-12">
-      <h1 className="mb-2 text-2xl font-bold">Sample App</h1>
+      <h1 className="mb-2 text-2xl font-bold">terravie トラブル報告フォーム</h1>
       <p className="mb-8 text-sm text-gray-600">利用する画面を選んでください。</p>
 
       <div className="flex flex-col gap-3">
