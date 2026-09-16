@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import SampleChat from '@/components/SampleChat';
 import {
+  STATUS_OPTIONS,
   statusBadgeClass,
   statusLabelJa,
   type SampleStatus,
@@ -65,7 +67,6 @@ type RegisteredSample = {
   actual_actions?: string | null;
   error_code?: string | null;
   ai_initial_response?: string | null;
-  operation_log?: string | null;
   status?: SampleStatus;
 };
 
@@ -112,8 +113,14 @@ export default function Home() {
   const [registered, setRegistered] = useState<RegisteredSample[]>([]);
   const [registeredKeyword, setRegisteredKeyword] = useState('');
   const [registeredEmail, setRegisteredEmail] = useState('');
+  const [registeredStatus, setRegisteredStatus] = useState('');
+  const [registeredDateFrom, setRegisteredDateFrom] = useState('');
+  const [registeredDateTo, setRegisteredDateTo] = useState('');
   const [appliedRegisteredKeyword, setAppliedRegisteredKeyword] = useState('');
   const [appliedRegisteredEmail, setAppliedRegisteredEmail] = useState('');
+  const [appliedRegisteredStatus, setAppliedRegisteredStatus] = useState('');
+  const [appliedRegisteredDateFrom, setAppliedRegisteredDateFrom] = useState('');
+  const [appliedRegisteredDateTo, setAppliedRegisteredDateTo] = useState('');
 
   const [selectedRegistered, setSelectedRegistered] = useState<RegisteredSample | null>(
     null,
@@ -149,18 +156,34 @@ export default function Home() {
     }
   }, [appliedDraftKeyword]);
 
-  const loadRegistered = useCallback(
-    async (q = appliedRegisteredKeyword, ownerEmail = appliedRegisteredEmail) => {
-      const params = new URLSearchParams({ is_draft: 'false' });
-      if (q.trim()) params.set('q', q.trim());
-      if (ownerEmail.trim()) params.set('email', ownerEmail.trim());
-      const res = await fetch(`${API_BASE_URL}/samples?${params.toString()}`);
-      if (res.ok) {
-        setRegistered(await res.json());
-      }
-    },
-    [appliedRegisteredKeyword, appliedRegisteredEmail],
-  );
+  const loadRegistered = useCallback(async () => {
+    const params = new URLSearchParams({ is_draft: 'false' });
+    if (appliedRegisteredKeyword.trim()) {
+      params.set('q', appliedRegisteredKeyword.trim());
+    }
+    if (appliedRegisteredEmail.trim()) {
+      params.set('email', appliedRegisteredEmail.trim());
+    }
+    if (appliedRegisteredStatus) {
+      params.set('status', appliedRegisteredStatus);
+    }
+    if (appliedRegisteredDateFrom) {
+      params.set('date_from', appliedRegisteredDateFrom);
+    }
+    if (appliedRegisteredDateTo) {
+      params.set('date_to', appliedRegisteredDateTo);
+    }
+    const res = await fetch(`${API_BASE_URL}/samples?${params.toString()}`);
+    if (res.ok) {
+      setRegistered(await res.json());
+    }
+  }, [
+    appliedRegisteredKeyword,
+    appliedRegisteredEmail,
+    appliedRegisteredStatus,
+    appliedRegisteredDateFrom,
+    appliedRegisteredDateTo,
+  ]);
 
   useEffect(() => {
     loadDrafts();
@@ -423,7 +446,6 @@ export default function Home() {
           trouble_type: troubleType,
           trouble_detail: selectedRegistered.trouble_detail ?? '',
           email: email.trim(),
-          operation_log: selectedRegistered.operation_log ?? null,
           expected_actions: editExpected.trim(),
           actual_actions: editActual.trim(),
           error_code: editErrorCode.trim() || null,
@@ -484,6 +506,9 @@ export default function Home() {
     e.preventDefault();
     setAppliedRegisteredKeyword(registeredKeyword);
     setAppliedRegisteredEmail(registeredEmail);
+    setAppliedRegisteredStatus(registeredStatus);
+    setAppliedRegisteredDateFrom(registeredDateFrom);
+    setAppliedRegisteredDateTo(registeredDateTo);
   };
 
   const handleDraftSearch = (e: React.FormEvent) => {
@@ -499,12 +524,6 @@ export default function Home() {
           新しいトラブルを入力すると、AI が類似事例と一次回答を提示します。
         </p>
         <nav className="mt-4 flex flex-wrap gap-3 text-sm">
-          <Link href="/customer" className="text-blue-700 underline hover:text-blue-900">
-            Customer 一覧
-          </Link>
-          <Link href="/staff" className="text-emerald-700 underline hover:text-emerald-900">
-            Staff 一覧
-          </Link>
           <Link href="/admin" className="text-gray-700 underline hover:text-gray-900">
             Administrator
           </Link>
@@ -784,6 +803,23 @@ export default function Home() {
               </button>
             </div>
           )}
+
+          <div className="mt-4 space-y-2">
+            {!canEditRegisteredStatus(selectedRegistered.status) && (
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="登録時メール（チャット送信用）*"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+            )}
+            <SampleChat
+              sampleId={selectedRegistered.id}
+              mode="staff"
+              ownerEmail={email}
+            />
+          </div>
         </section>
       )}
 
@@ -926,27 +962,62 @@ export default function Home() {
       {view === 'home' && (
         <section className="mt-10 border-t border-gray-200 pt-8">
           <h2 className="mb-3 text-lg font-semibold">登録済みサンプル</h2>
-          <form onSubmit={handleRegisteredSearch} className="mb-4 flex flex-col gap-2 sm:flex-row">
-            <input
-              type="search"
-              value={registeredKeyword}
-              onChange={(e) => setRegisteredKeyword(e.target.value)}
-              placeholder="キーワードで検索"
-              className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
-            />
-            <input
-              type="email"
-              value={registeredEmail}
-              onChange={(e) => setRegisteredEmail(e.target.value)}
-              placeholder="登録時メールで絞り込み"
-              className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
-            />
-            <button
-              type="submit"
-              className="rounded bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
-            >
-              検索
-            </button>
+          <form onSubmit={handleRegisteredSearch} className="mb-4 flex flex-col gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="search"
+                value={registeredKeyword}
+                onChange={(e) => setRegisteredKeyword(e.target.value)}
+                placeholder="キーワードで検索"
+                className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+              <input
+                type="email"
+                value={registeredEmail}
+                onChange={(e) => setRegisteredEmail(e.target.value)}
+                placeholder="登録時メールで絞り込み"
+                className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={registeredStatus}
+                onChange={(e) => setRegisteredStatus(e.target.value)}
+                className="rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+                aria-label="対応状況で絞り込み"
+              >
+                <option value="">すべての状況</option>
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.labelJa}
+                  </option>
+                ))}
+              </select>
+              <label className="text-sm text-gray-600" htmlFor="reg-date-from">
+                期間
+              </label>
+              <input
+                id="reg-date-from"
+                type="date"
+                value={registeredDateFrom}
+                onChange={(e) => setRegisteredDateFrom(e.target.value)}
+                className="rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+              <span className="text-sm text-gray-500">〜</span>
+              <input
+                id="reg-date-to"
+                type="date"
+                value={registeredDateTo}
+                onChange={(e) => setRegisteredDateTo(e.target.value)}
+                className="rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="rounded bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
+              >
+                検索
+              </button>
+            </div>
           </form>
           {registered.length === 0 ? (
             <p className="text-sm text-gray-600">登録済みサンプルはありません。</p>

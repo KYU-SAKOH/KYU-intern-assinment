@@ -19,12 +19,14 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import SampleModel
+from models import SampleMessageModel, SampleModel
 from schemas import (
     SampleAdminUpdate,
     SampleCreate,
     SampleDraftCreate,
     SampleFinalize,
+    SampleMessageCreate,
+    SampleMessageResponse,
     SamplePartialUpdate,
     SampleResponse,
     SampleTriageCompleteCreate,
@@ -245,7 +247,6 @@ def create_draft_sample(body: SampleDraftCreate, db: Session = Depends(get_db)):
         actual_actions=body.actual_actions.strip(),
         error_code=(body.error_code or "").strip() or None,
         ai_initial_response=body.ai_initial_response,
-        operation_log=None,
         status="Pending",
         admin_comment=None,
         is_draft=True,
@@ -273,7 +274,6 @@ def create_complete_from_triage(
         actual_actions=body.actual_actions.strip(),
         error_code=(body.error_code or "").strip() or None,
         ai_initial_response=body.ai_initial_response,
-        operation_log=None,
         status="Pending",
         admin_comment=None,
         is_draft=False,
@@ -338,10 +338,6 @@ def partial_update_sample(
 ):
     """
     問い合わせの一部だけ更新する（PATCH /samples/{id}）。
-
-    Terravie 再現画面の「トラブル発生を通知」はここを使い、
-    operation_log だけ送る（他フィールドは触らない）。
-
     exclude_unset=True … 「送られなかったフィールド」は更新対象にしない。
     """
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
@@ -405,3 +401,65 @@ def delete_sample(
     _verify_owner_email(sample, email)
     db.delete(sample)
     db.commit()
+
+
+@app.get("/samples/{sample_id}/messages", response_model=list[SampleMessageResponse])
+def get_sample_messages(sample_id: int, db: Session = Depends(get_db)):
+    """対応履歴（チャット）を時系列で取得する。"""
+    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    if sample.is_draft:
+        raise HTTPException(
+            status_code=400, detail="一時保存のサンプルには対応履歴がありません。"
+        )
+    return (
+        db.query(SampleMessageModel)
+        .filter(SampleMessageModel.sample_id == sample_id)
+        .order_by(SampleMessageModel.created_at.asc())
+        .all()
+    )
+
+
+@app.post(
+    "/samples/{sample_id}/messages",
+    response_model=SampleMessageResponse,
+    status_code=201,
+)
+def create_sample_message(
+    sample_id: int, body: SampleMessageCreate, db: Session = Depends(get_db)
+):
+    """
+    対応履歴にメッセージを追加する。
+    - staff: 登録時メールの照合が必須
+    - admin: メール不要（デモ用管理者画面）
+    """
+    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    if sample.is_draft:
+        raise HTTPException(
+            status_code=400, detail="一時保存のサンプルにはメッセージを送れません。"
+        )
+
+    text = body.body.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="メッセージ本文が空です。")
+
+    if body.author_role == "staff":
+        if not body.email or not body.email.strip():
+            raise HTTPException(
+                status_code=400, detail="スタッフ投稿には email が必要です。"
+            )
+        _verify_owner_email(sample, body.email)
+
+    msg = SampleMessageModel(
+        sample_id=sample_id,
+        author_role=body.author_role,
+        body=text,
+        created_at=datetime.utcnow(),
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return msg

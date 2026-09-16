@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import SampleChat from '@/components/SampleChat';
 import {
   STATUS_OPTIONS,
   statusBadgeClass,
@@ -18,11 +19,12 @@ import type { components } from '@/types/api';
  * できること:
  *  - キーワード / 種別 / 対応状況 / 期間で検索
  *  - ラジオボタンで対応状況を変更（画面は日本語、保存値は英語）
- *  - 管理者コメントを付けて保存
+ *  - チャット形式で園館スタッフとやり取り
  *
  * 使う API:
  *  - GET  /samples?q=&trouble_type=&status=&date_from=&date_to=
- *  - PATCH /samples/{id}/admin  … status / admin_comment だけ更新
+ *  - PATCH /samples/{id}/admin  … status 更新
+ *  - GET/POST /samples/{id}/messages … 対応履歴
  */
 
 type Sample = components['schemas']['SampleResponse'];
@@ -31,9 +33,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8
 
 export default function AdminPage() {
   const [samples, setSamples] = useState<Sample[]>([]);
-  // 行ごとの編集中ステータス / コメント（保存ボタンを押すまでの下書き）
+  // 行ごとの編集中ステータス（保存ボタンを押すまでの下書き）
   const [draftStatus, setDraftStatus] = useState<Record<number, SampleStatus>>({});
-  const [draftComment, setDraftComment] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -85,15 +86,12 @@ export default function AdminPage() {
     const data: Sample[] = await res.json();
     setSamples(data);
 
-    // 取得結果で下書きを初期化（保存後の再読込でもラジオ・コメントがずれないように）
+    // 取得結果で下書きを初期化（保存後の再読込でもラジオがずれないように）
     const nextStatus: Record<number, SampleStatus> = {};
-    const nextComment: Record<number, string> = {};
     for (const s of data) {
       nextStatus[s.id] = toSampleStatus(s.status);
-      nextComment[s.id] = s.admin_comment ?? '';
     }
     setDraftStatus(nextStatus);
-    setDraftComment(nextComment);
   }, [appliedKeyword, appliedTroubleType, appliedStatus, appliedDateFrom, appliedDateTo]);
 
   useEffect(() => {
@@ -132,17 +130,19 @@ export default function AdminPage() {
     Boolean(appliedDateTo);
 
   /**
-   * 1件分の status / admin_comment を保存する。
+   * 1件分の status を保存する。
    * 画面上の日本語ラベルではなく、英語の value を API に送る点に注意。
+   * 既存の admin_comment はチャットに移行したため、保存時は現状値を維持する。
    */
   const handleSave = async (id: number) => {
     setSavingId(id);
     setMessage('');
     setError('');
 
+    const current = samples.find((s) => s.id === id);
     const body = {
       status: draftStatus[id] ?? 'Pending',
-      admin_comment: (draftComment[id] ?? '').trim() || null,
+      admin_comment: current?.admin_comment ?? null,
     };
 
     try {
@@ -180,7 +180,8 @@ export default function AdminPage() {
       </div>
 
       <p className="mb-4 text-sm text-gray-600">
-        問い合わせの対応状況をラジオボタンで選び、必要ならコメントを付けて保存できます。
+        問い合わせの対応状況をラジオボタンで選び保存できます。
+        園館スタッフとのやり取りは下のチャット（対応履歴）で行います。
         新規登録時の初期ステータスは{' '}
         <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">
           未対応
@@ -383,19 +384,10 @@ export default function AdminPage() {
                   </div>
                 </fieldset>
 
-                {/* ===== 管理者コメント ===== */}
-                <label className="mb-3 block text-sm">
-                  <span className="mb-1 block font-semibold text-gray-800">管理者コメント</span>
-                  <textarea
-                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                    rows={3}
-                    placeholder="対応メモがあれば入力（任意）"
-                    value={draftComment[sample.id] ?? ''}
-                    onChange={(e) =>
-                      setDraftComment((prev) => ({ ...prev, [sample.id]: e.target.value }))
-                    }
-                  />
-                </label>
+                {/* ===== 対応履歴（チャット） ===== */}
+                <div className="mb-3">
+                  <SampleChat sampleId={sample.id} mode="admin" />
+                </div>
 
                 <button
                   type="button"
@@ -403,7 +395,7 @@ export default function AdminPage() {
                   disabled={savingId === sample.id}
                   className="rounded bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-900 disabled:opacity-60"
                 >
-                  {savingId === sample.id ? '保存中…' : 'この問い合わせを保存'}
+                  {savingId === sample.id ? '保存中…' : '対応状況を保存'}
                 </button>
               </li>
             );

@@ -29,8 +29,6 @@ class SampleCreate(BaseModel):
     trouble_detail: str = ""
     # 登録者メール（必須。あとで更新・削除の照合キーになる）
     email: str = Field(min_length=3, max_length=255)
-    # 操作ログは後から PATCH することが多いので、作成時は省略可
-    operation_log: str | None = None
     # トップページのトリアージ入力（任意。トリアージ経由で登録するとき使う）
     expected_actions: str | None = None
     actual_actions: str | None = None
@@ -85,7 +83,6 @@ class SampleUpdate(BaseModel):
     trouble_type: str
     trouble_detail: str = ""
     email: str = Field(min_length=3, max_length=255)
-    operation_log: str | None = None
     expected_actions: str | None = None
     actual_actions: str | None = None
     error_code: str | None = None
@@ -97,8 +94,8 @@ class SamplePartialUpdate(BaseModel):
     PATCH /samples/{id} 用（登録者向け）。
     送ったフィールドだけ更新する。email だけは必ず必要（本人確認）。
 
-    例（操作ログだけ更新）:
-      { "email": "a@example.com", "operation_log": "..." }
+    例（部分更新）:
+      { "email": "a@example.com", "place": "ゲート1" }
     """
 
     email: str = Field(min_length=3, max_length=255)
@@ -107,7 +104,6 @@ class SamplePartialUpdate(BaseModel):
     place: str | None = None
     trouble_type: str | None = None
     trouble_detail: str | None = None
-    operation_log: str | None = None
     expected_actions: str | None = None
     actual_actions: str | None = None
     error_code: str | None = None
@@ -143,7 +139,6 @@ class SampleResponse(BaseModel):
     actual_actions: str | None = None
     error_code: str | None = None
     ai_initial_response: str | None = None
-    operation_log: str | None = None
     status: SampleStatus = "Pending"
     admin_comment: str | None = None
     is_draft: bool = False
@@ -172,3 +167,27 @@ class TriageResponse(BaseModel):
     reentry_reasons: list[str] = Field(default_factory=list)
     similar_samples: list[SampleResponse] = Field(default_factory=list)
     initial_response: str | None = None
+
+
+MessageAuthorRole = Literal["staff", "admin"]
+
+
+class SampleMessageCreate(BaseModel):
+    """POST /samples/{id}/messages のリクエスト。"""
+
+    author_role: MessageAuthorRole
+    body: str = Field(min_length=1)
+    # staff 投稿時は登録時メールが必須。admin は不要。
+    email: str | None = None
+
+
+class SampleMessageResponse(BaseModel):
+    """チャットメッセージ1件のレスポンス。"""
+
+    id: int
+    sample_id: int
+    author_role: MessageAuthorRole
+    body: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
