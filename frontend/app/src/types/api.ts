@@ -98,11 +98,15 @@ export interface components {
             /** Place */
             place: string;
             trouble_type: string;
-            trouble_detail: string;
+            trouble_detail?: string;
             /** Email */
             email: string;
             /** Operation Log */
             operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
         };
         // ===== 追加: 更新用スキーマ =====
         /** SampleUpdate */
@@ -122,6 +126,10 @@ export interface components {
             email: string;
             /** Operation Log */
             operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
         };
         /** SamplePartialUpdate */
         SamplePartialUpdate: {
@@ -140,6 +148,10 @@ export interface components {
             trouble_detail?: string | null;
             /** Operation Log */
             operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
         };
         /** SampleAdminUpdate（管理者画面用） */
         SampleAdminUpdate: {
@@ -164,12 +176,18 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
             /** Operation Log */
             operation_log?: string | null;
             /** Status（管理者対応状況。初期値 Pending） */
             status?: 'Pending' | 'Temporarily Resolved' | 'Fully Resolved';
             /** Admin Comment */
             admin_comment?: string | null;
+            /** 一時保存（トップページ） */
+            is_draft?: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -225,6 +243,8 @@ export interface operations {
                 date_from?: string | null;
                 /** @description この日以前（含む） */
                 date_to?: string | null;
+                /** @description true=一時保存のみ, false=本登録のみ */
+                is_draft?: boolean | null;
                 // ===== 追加ここまで =====
             };
             header?: never;

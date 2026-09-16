@@ -57,7 +57,6 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
   const [troubleType, setTroubleType] = useState<TroubleType | ''>(
     isCustomer ? 'customer' : '',
   );
-  const [troubleDetail, setTroubleDetail] = useState('');
   // メールは一覧には出さない。更新・削除・操作ログ保存の本人確認に使う
   const [email, setEmail] = useState('');
   // null = 新規作成モード / 数字 = その ID を編集中
@@ -151,7 +150,6 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
     setDate('');
     setPlace('');
     setTroubleType(isCustomer ? 'customer' : '');
-    setTroubleDetail('');
     setEmail('');
     setEditingId(null);
     setFormError('');
@@ -175,7 +173,6 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
     if (!date) missing.push({ key: 'date', label: '日時' });
     if (!place.trim()) missing.push({ key: 'place', label: '場所' });
     if (!troubleType) missing.push({ key: 'troubleType', label: 'トラブル種別' });
-    if (!troubleDetail.trim()) missing.push({ key: 'troubleDetail', label: 'トラブルの詳細' });
     if (!email.trim()) missing.push({ key: 'email', label: 'メールアドレス' });
     return missing;
   };
@@ -210,7 +207,6 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
           ? 'stuff'
           : 'customer',
     );
-    setTroubleDetail(sample.trouble_detail);
     setEmail('');
     setFormError('');
     setMissingFields(new Set());
@@ -262,19 +258,21 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
     const formattedDate = parsedDate.toISOString();
 
     // 更新時は既存の操作ログを消さないよう引き継ぐ
-    const existingLog =
-      editingId !== null
-        ? samples.find((s) => s.id === editingId)?.operation_log ?? null
-        : null;
+    const existing =
+      editingId !== null ? samples.find((s) => s.id === editingId) : undefined;
 
     const body = {
       name,
       date: formattedDate,
       place,
       trouble_type: resolvedType,
-      trouble_detail: troubleDetail,
+      trouble_detail: '',
       email: email.trim(),
-      operation_log: existingLog,
+      operation_log: existing?.operation_log ?? null,
+      expected_actions: existing?.expected_actions ?? null,
+      actual_actions: existing?.actual_actions ?? null,
+      error_code: existing?.error_code ?? null,
+      ai_initial_response: existing?.ai_initial_response ?? null,
     };
 
     // customer 種別の新規追加後は、Terravie 再現画面を開く
@@ -555,19 +553,6 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
         )}
 
         <input
-          className={`rounded border px-3 py-2 ${
-            missingFields.has('troubleDetail') ? 'border-red-500 bg-red-50' : 'border-gray-300'
-          }`}
-          placeholder="トラブルの詳細を入力（必須）"
-          value={troubleDetail}
-          onChange={(e) => {
-            setTroubleDetail(e.target.value);
-            clearFieldError('troubleDetail');
-          }}
-          aria-invalid={missingFields.has('troubleDetail')}
-          aria-required="true"
-        />
-        <input
           type="email"
           className={`rounded border px-3 py-2 ${
             missingFields.has('email') ? 'border-red-500 bg-red-50' : 'border-gray-300'
@@ -685,10 +670,30 @@ export default function InquiryApp({ mode }: InquiryAppProps) {
                 </div>
               </div>
 
-              {sample.trouble_detail && (
+              {(sample.expected_actions || sample.actual_actions) && (
                 <div className="rounded bg-gray-50 p-2 text-xs text-gray-700 whitespace-pre-wrap">
-                  <span className="mb-0.5 block font-semibold text-gray-500">【トラブル内容】</span>
-                  {sample.trouble_detail}
+                  {sample.expected_actions && (
+                    <p>
+                      <span className="font-semibold text-gray-500">【期待結果】</span>
+                      {sample.expected_actions}
+                    </p>
+                  )}
+                  {sample.actual_actions && (
+                    <p className="mt-1">
+                      <span className="font-semibold text-gray-500">【実際の結果】</span>
+                      {sample.actual_actions}
+                    </p>
+                  )}
+                  {sample.error_code && (
+                    <p className="mt-1 text-gray-600">エラーコード: {sample.error_code}</p>
+                  )}
+                </div>
+              )}
+
+              {sample.ai_initial_response && (
+                <div className="rounded border border-sky-100 bg-sky-50/70 p-2 text-xs text-gray-800 whitespace-pre-wrap">
+                  <span className="mb-0.5 block font-semibold text-sky-800">【AI 一次回答】</span>
+                  {sample.ai_initial_response}
                 </div>
               )}
 

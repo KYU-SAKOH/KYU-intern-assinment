@@ -7,7 +7,7 @@ SQLAlchemy モデル（DB のテーブル定義）
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -37,6 +37,15 @@ class SampleModel(Base):
     # トラブル内容の自由記述（長い文章用に Text 型）
     trouble_detail: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # トップページの AI トリアージ入力（既存データは NULL のまま）
+    # 実施した操作と期待結果 / 実施した操作と実際の結果 / エラーコード（任意）
+    expected_actions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_actions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # AI が返した一次回答（想定原因・対応要否など）。未分析なら NULL
+    ai_initial_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # 顧客再現時の操作ログ（未記録なら NULL 可）
     # Terravie 再現画面で「トラブル発生を通知」するとここに文字列が入る
     operation_log: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -51,3 +60,6 @@ class SampleModel(Base):
 
     # 管理者コメント（任意。未記入なら NULL）
     admin_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # トップページの一時保存（詳細未入力）。False = 本登録済み
+    is_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)

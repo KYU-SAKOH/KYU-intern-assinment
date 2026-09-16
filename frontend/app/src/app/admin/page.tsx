@@ -324,11 +324,32 @@ export default function AdminPage() {
                 <p className="mb-1 text-sm text-gray-600">
                   日時: {new Date(sample.date).toLocaleString('ja-JP')} ／ 場所: {sample.place}
                 </p>
-                {sample.trouble_detail && (
-                  <p className="mb-3 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
-                    {sample.trouble_detail}
-                  </p>
+                {(sample.expected_actions || sample.actual_actions) && (
+                  <div className="mb-3 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
+                    {sample.expected_actions && (
+                      <p>
+                        <span className="font-semibold">期待結果: </span>
+                        {sample.expected_actions}
+                      </p>
+                    )}
+                    {sample.actual_actions && (
+                      <p className="mt-1">
+                        <span className="font-semibold">実際の結果: </span>
+                        {sample.actual_actions}
+                      </p>
+                    )}
+                    {sample.error_code && (
+                      <p className="mt-1 text-gray-600">エラー: {sample.error_code}</p>
+                    )}
+                  </div>
                 )}
+                {!sample.expected_actions &&
+                  !sample.actual_actions &&
+                  sample.trouble_detail && (
+                    <p className="mb-3 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
+                      {sample.trouble_detail}
+                    </p>
+                  )}
 
                 {/* ===== ステータス変更（ラジオ）。表示は日本語、value は英語 ===== */}
                 <fieldset className="mb-3">
