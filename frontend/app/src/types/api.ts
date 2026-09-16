@@ -77,6 +77,22 @@ export interface paths {
         // ===== 追加ここまで =====
         trace?: never;
     };
+    "/samples/{sample_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_sample_messages"];
+        put?: never;
+        post: operations["create_sample_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -98,11 +114,13 @@ export interface components {
             /** Place */
             place: string;
             trouble_type: string;
-            trouble_detail: string;
+            trouble_detail?: string;
             /** Email */
             email: string;
-            /** Operation Log */
-            operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
         };
         // ===== 追加: 更新用スキーマ =====
         /** SampleUpdate */
@@ -120,8 +138,10 @@ export interface components {
             trouble_detail: string;
             /** Email（照合用） */
             email: string;
-            /** Operation Log */
-            operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
         };
         /** SamplePartialUpdate */
         SamplePartialUpdate: {
@@ -138,8 +158,10 @@ export interface components {
             place?: string | null;
             trouble_type?: string | null;
             trouble_detail?: string | null;
-            /** Operation Log */
-            operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
         };
         /** SampleAdminUpdate（管理者画面用） */
         SampleAdminUpdate: {
@@ -147,6 +169,21 @@ export interface components {
             status: 'Pending' | 'Temporarily Resolved' | 'Fully Resolved';
             /** Admin Comment */
             admin_comment?: string | null;
+        };
+        /** SampleMessageCreate */
+        SampleMessageCreate: {
+            author_role: 'staff' | 'admin';
+            body: string;
+            email?: string | null;
+        };
+        /** SampleMessageResponse */
+        SampleMessageResponse: {
+            id: number;
+            sample_id: number;
+            author_role: 'staff' | 'admin';
+            body: string;
+            /** Format: date-time */
+            created_at: string;
         };
         // ===== 追加ここまで =====
         /** SampleResponse */
@@ -164,12 +201,16 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
-            /** Operation Log */
-            operation_log?: string | null;
+            expected_actions?: string | null;
+            actual_actions?: string | null;
+            error_code?: string | null;
+            ai_initial_response?: string | null;
             /** Status（管理者対応状況。初期値 Pending） */
             status?: 'Pending' | 'Temporarily Resolved' | 'Fully Resolved';
             /** Admin Comment */
             admin_comment?: string | null;
+            /** 一時保存（トップページ） */
+            is_draft?: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -225,6 +266,10 @@ export interface operations {
                 date_from?: string | null;
                 /** @description この日以前（含む） */
                 date_to?: string | null;
+                /** @description true=一時保存のみ, false=本登録のみ */
+                is_draft?: boolean | null;
+                /** @description 登録時メールで絞り込み */
+                email?: string | null;
                 // ===== 追加ここまで =====
             };
             header?: never;
@@ -378,6 +423,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sample_messages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleMessageResponse"][];
+                };
+            };
+        };
+    };
+    create_sample_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SampleMessageCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleMessageResponse"];
                 };
             };
         };

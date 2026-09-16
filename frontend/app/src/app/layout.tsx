@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import '@/styles/globals.css';
 
 export const metadata: Metadata = {
-  title: 'Sample App',
+  title: 'terravie トラブル報告フォーム',
   description: 'インターン課題テンプレート',
 };
 

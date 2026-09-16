@@ -10,6 +10,7 @@
 
 import os
 import re
+import uuid
 from datetime import date, datetime, time
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -18,14 +19,22 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import SampleModel
+from models import SampleMessageModel, SampleModel
 from schemas import (
     SampleAdminUpdate,
     SampleCreate,
+    SampleDraftCreate,
+    SampleFinalize,
+    SampleMessageCreate,
+    SampleMessageResponse,
     SamplePartialUpdate,
     SampleResponse,
+    SampleTriageCompleteCreate,
     SampleUpdate,
+    TriageRequest,
+    TriageResponse,
 )
+from triage import run_triage
 
 # フロントの URL（CORS で「このオリジンからはアクセスOK」と許可する）
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
@@ -68,6 +77,14 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+DRAFT_PLACEHOLDER_NAME = "（未入力）"
+DRAFT_PLACEHOLDER_PLACE = "（未入力）"
+
+
+def _draft_placeholder_email() -> str:
+    return f"draft-{uuid.uuid4().hex}@incomplete.local"
+
+
 def _verify_owner_email(db_sample: SampleModel, email: str) -> None:
     """
     登録時のメールと一致するか確認する。
@@ -89,6 +106,14 @@ def get_samples(
     status: str | None = Query(None, description="対応状況で絞り込み"),
     date_from: date | None = Query(None, description="この日以降（含む）"),
     date_to: date | None = Query(None, description="この日以前（含む）"),
+    is_draft: bool | None = Query(
+        None,
+        description="true=一時保存のみ, false=本登録のみ, 省略=本登録のみ（Customer/Staff 既定）",
+    ),
+    email: str | None = Query(
+        None,
+        description="登録時メールで絞り込み（トップページの「自分のサンプル」検索用）",
+    ),
     # Depends(get_db) … リクエストごとに DB セッションを用意し、終わったら閉じる
     db: Session = Depends(get_db),
 ):
@@ -101,6 +126,12 @@ def get_samples(
     """
     query = db.query(SampleModel)
 
+    # --- 一時保存 / 本登録の切り分け ---
+    if is_draft is True:
+        query = query.filter(SampleModel.is_draft.is_(True))
+    else:
+        query = query.filter(SampleModel.is_draft.is_(False))
+
     # --- キーワード検索（名前・場所・詳細のいずれかに部分一致。複数語は AND） ---
     if q and q.strip():
         # 半角・全角スペースで分割し、空文字は捨てる
@@ -112,8 +143,15 @@ def get_samples(
                     SampleModel.name.like(pattern, escape="\\"),
                     SampleModel.place.like(pattern, escape="\\"),
                     SampleModel.trouble_detail.like(pattern, escape="\\"),
+                    SampleModel.expected_actions.like(pattern, escape="\\"),
+                    SampleModel.actual_actions.like(pattern, escape="\\"),
+                    SampleModel.error_code.like(pattern, escape="\\"),
                 )
             )
+
+    # --- 登録者メールで絞り込み（レスポンスには email を含めない） ---
+    if email and email.strip():
+        query = query.filter(SampleModel.email == _normalize_email(email))
 
     # --- トラブル種別で絞り込み ---
     if trouble_type and trouble_type.strip():
@@ -135,6 +173,42 @@ def get_samples(
     return query.order_by(SampleModel.date.desc()).all()
 
 
+@app.post("/triage", response_model=TriageResponse)
+def triage_report(body: TriageRequest, db: Session = Depends(get_db)):
+    """
+    トップページからの AI トリアージ（POST /triage）。
+
+    - 情報不足・複数トラブル混在 → needs_reentry（再入力を促す）
+    - 問題なし → 類似サンプルと一次回答を返す（まだ DB には保存しない）
+    """
+    result = run_triage(
+        db,
+        expected_actions=body.expected_actions,
+        actual_actions=body.actual_actions,
+        error_code=body.error_code,
+    )
+
+    similar: list[SampleModel] = []
+    if result["similar_sample_ids"]:
+        rows = (
+            db.query(SampleModel)
+            .filter(SampleModel.id.in_(result["similar_sample_ids"]))
+            .all()
+        )
+        by_id = {row.id: row for row in rows}
+        # OpenAI が返した順を保つ
+        similar = [
+            by_id[sid] for sid in result["similar_sample_ids"] if sid in by_id
+        ]
+
+    return TriageResponse(
+        status=result["status"],
+        reentry_reasons=result["reentry_reasons"],
+        similar_samples=similar,
+        initial_response=result["initial_response"],
+    )
+
+
 @app.post("/samples", response_model=SampleResponse, status_code=201)
 def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     """
@@ -148,10 +222,87 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     # 新規作成時の対応状況は必ず Pending（フロントから改ざんできないようサーバで固定）
     payload["status"] = "Pending"
     payload["admin_comment"] = None
+    payload["is_draft"] = False
+    if payload.get("trouble_detail") is None:
+        payload["trouble_detail"] = ""
     db_sample = SampleModel(**payload)  # ORM の1行分のオブジェクトを作る
     db.add(db_sample)  # 「追加予定」としてセッションに載せる
     db.commit()  # 実際に DB へ書き込む
     db.refresh(db_sample)  # DB が採番した id などを読み直す
+    return db_sample
+
+
+@app.post("/samples/draft", response_model=SampleResponse, status_code=201)
+def create_draft_sample(body: SampleDraftCreate, db: Session = Depends(get_db)):
+    """トップページの一時保存。トリアージ内容と日時のみ確定し、詳細は後から入力する。"""
+    now = datetime.utcnow()
+    db_sample = SampleModel(
+        name=DRAFT_PLACEHOLDER_NAME,
+        date=now,
+        place=DRAFT_PLACEHOLDER_PLACE,
+        trouble_type="customer",
+        trouble_detail="",
+        email=_draft_placeholder_email(),
+        expected_actions=body.expected_actions.strip(),
+        actual_actions=body.actual_actions.strip(),
+        error_code=(body.error_code or "").strip() or None,
+        ai_initial_response=body.ai_initial_response,
+        status="Pending",
+        admin_comment=None,
+        is_draft=True,
+    )
+    db.add(db_sample)
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+
+@app.post("/samples/complete", response_model=SampleResponse, status_code=201)
+def create_complete_from_triage(
+    body: SampleTriageCompleteCreate, db: Session = Depends(get_db)
+):
+    """トップページ「詳細を入力」からの本登録（日時はサーバが記録）。"""
+    now = datetime.utcnow()
+    db_sample = SampleModel(
+        name=body.name.strip(),
+        date=now,
+        place=body.place.strip(),
+        trouble_type=body.trouble_type.strip(),
+        trouble_detail="",
+        email=_normalize_email(body.email),
+        expected_actions=body.expected_actions.strip(),
+        actual_actions=body.actual_actions.strip(),
+        error_code=(body.error_code or "").strip() or None,
+        ai_initial_response=body.ai_initial_response,
+        status="Pending",
+        admin_comment=None,
+        is_draft=False,
+    )
+    db.add(db_sample)
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+
+@app.patch("/samples/{sample_id}/finalize", response_model=SampleResponse)
+def finalize_draft_sample(
+    sample_id: int, body: SampleFinalize, db: Session = Depends(get_db)
+):
+    """一時保存サンプルに詳細を入力して本登録にする。"""
+    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    if not db_sample.is_draft:
+        raise HTTPException(status_code=400, detail="このサンプルは既に本登録済みです。")
+
+    db_sample.name = body.name.strip()
+    db_sample.place = body.place.strip()
+    db_sample.trouble_type = body.trouble_type.strip()
+    db_sample.email = _normalize_email(body.email)
+    db_sample.is_draft = False
+
+    db.commit()
+    db.refresh(db_sample)
     return db_sample
 
 
@@ -187,10 +338,6 @@ def partial_update_sample(
 ):
     """
     問い合わせの一部だけ更新する（PATCH /samples/{id}）。
-
-    Terravie 再現画面の「トラブル発生を通知」はここを使い、
-    operation_log だけ送る（他フィールドは触らない）。
-
     exclude_unset=True … 「送られなかったフィールド」は更新対象にしない。
     """
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
@@ -254,3 +401,65 @@ def delete_sample(
     _verify_owner_email(sample, email)
     db.delete(sample)
     db.commit()
+
+
+@app.get("/samples/{sample_id}/messages", response_model=list[SampleMessageResponse])
+def get_sample_messages(sample_id: int, db: Session = Depends(get_db)):
+    """対応履歴（チャット）を時系列で取得する。"""
+    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    if sample.is_draft:
+        raise HTTPException(
+            status_code=400, detail="一時保存のサンプルには対応履歴がありません。"
+        )
+    return (
+        db.query(SampleMessageModel)
+        .filter(SampleMessageModel.sample_id == sample_id)
+        .order_by(SampleMessageModel.created_at.asc())
+        .all()
+    )
+
+
+@app.post(
+    "/samples/{sample_id}/messages",
+    response_model=SampleMessageResponse,
+    status_code=201,
+)
+def create_sample_message(
+    sample_id: int, body: SampleMessageCreate, db: Session = Depends(get_db)
+):
+    """
+    対応履歴にメッセージを追加する。
+    - staff: 登録時メールの照合が必須
+    - admin: メール不要（デモ用管理者画面）
+    """
+    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    if sample.is_draft:
+        raise HTTPException(
+            status_code=400, detail="一時保存のサンプルにはメッセージを送れません。"
+        )
+
+    text = body.body.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="メッセージ本文が空です。")
+
+    if body.author_role == "staff":
+        if not body.email or not body.email.strip():
+            raise HTTPException(
+                status_code=400, detail="スタッフ投稿には email が必要です。"
+            )
+        _verify_owner_email(sample, body.email)
+
+    msg = SampleMessageModel(
+        sample_id=sample_id,
+        author_role=body.author_role,
+        body=text,
+        created_at=datetime.utcnow(),
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return msg
