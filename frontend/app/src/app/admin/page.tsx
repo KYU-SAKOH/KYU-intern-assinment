@@ -46,10 +46,25 @@ function priorityBand(score: number | undefined): { label: string; className: st
   }
   return { label: `優先度: 低 (${s})`, className: 'bg-gray-100 text-gray-700' };
 }
+type ResolveFields = {
+  cause: string;
+  response: string;
+  onsiteFix: string;
+};
+
+function formatResolveMessage(fields: ResolveFields): string {
+  return (
+    `【原因】\n${fields.cause.trim()}\n\n` +
+    `【対応内容】\n${fields.response.trim()}\n\n` +
+    `【現場での解決方法】\n${fields.onsiteFix.trim()}`
+  );
+}
+
 export default function AdminPage() {
   const [samples, setSamples] = useState<Sample[]>([]);
   // 行ごとの編集中ステータス（保存ボタンを押すまでの下書き）
   const [draftStatus, setDraftStatus] = useState<Record<number, SampleStatus>>({});
+  const [resolveDraft, setResolveDraft] = useState<Record<number, ResolveFields>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -147,8 +162,8 @@ export default function AdminPage() {
 
   /**
    * 1件分の status を保存する。
-   * 画面上の日本語ラベルではなく、英語の value を API に送る点に注意。
-   * 既存の admin_comment はチャットに移行したため、保存時は現状値を維持する。
+   * 完全対応済みにするときは原因・対応内容・現場解決方法が必須で、
+   * 保存後に admin チャットへ1通投稿する。
    */
   const handleSave = async (id: number) => {
     setSavingId(id);
@@ -156,10 +171,22 @@ export default function AdminPage() {
     setError('');
 
     const current = samples.find((s) => s.id === id);
+    const nextStatus = draftStatus[id] ?? 'Pending';
     const body = {
-      status: draftStatus[id] ?? 'Pending',
+      status: nextStatus,
       admin_comment: current?.admin_comment ?? null,
     };
+
+    if (nextStatus === 'Fully Resolved') {
+      const fields = resolveDraft[id] ?? { cause: '', response: '', onsiteFix: '' };
+      if (!fields.cause.trim() || !fields.response.trim() || !fields.onsiteFix.trim()) {
+        setError(
+          `ID ${id}: 完全対応済みにするには「原因」「対応内容」「現場での解決方法」をすべて入力してください。`,
+        );
+        setSavingId(null);
+        return;
+      }
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/samples/${id}/admin`, {
@@ -177,6 +204,29 @@ export default function AdminPage() {
         }
         throw new Error(detail);
       }
+
+      if (nextStatus === 'Fully Resolved') {
+        const fields = resolveDraft[id] ?? { cause: '', response: '', onsiteFix: '' };
+        const msgRes = await fetch(`${API_BASE_URL}/samples/${id}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            author_role: 'admin',
+            body: formatResolveMessage(fields),
+          }),
+        });
+        if (!msgRes.ok) {
+          throw new Error(
+            `ステータスは更新しましたが、対応内容のチャット投稿に失敗しました (${msgRes.status})`,
+          );
+        }
+        setResolveDraft((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+
       setMessage(`ID ${id} を保存しました。`);
       await loadSamples();
     } catch (e) {
@@ -184,6 +234,22 @@ export default function AdminPage() {
     } finally {
       setSavingId(null);
     }
+  };
+
+  const updateResolveField = (
+    id: number,
+    key: keyof ResolveFields,
+    value: string,
+  ) => {
+    setResolveDraft((prev) => ({
+      ...prev,
+      [id]: {
+        cause: prev[id]?.cause ?? '',
+        response: prev[id]?.response ?? '',
+        onsiteFix: prev[id]?.onsiteFix ?? '',
+        [key]: value,
+      },
+    }));
   };
 
   return (
@@ -197,6 +263,7 @@ export default function AdminPage() {
 
       <p className="mb-4 text-sm text-gray-600">
         問い合わせの対応状況をラジオボタンで選び保存できます。
+        完全対応済みにするときは原因・対応内容・現場での解決方法の入力が必須で、対応履歴チャットに残ります。
         一覧は対応優先度が高い順（再現率・重要度・内容を参考）に表示します。
         園館スタッフとのやり取りは下のチャット（対応履歴）で行います。
         新規登録時の初期ステータスは{' '}
@@ -393,10 +460,6 @@ export default function AdminPage() {
                         key={opt.value}
                         className="flex cursor-pointer items-center gap-2 text-sm"
                       >
-                        {/*
-                          name={`status-${sample.id}`} で行ごとにグループを分ける。
-                          同じ name だと別の問い合わせのラジオと干渉してしまう。
-                        */}
                         <input
                           type="radio"
                           name={`status-${sample.id}`}
@@ -415,6 +478,51 @@ export default function AdminPage() {
                     ))}
                   </div>
                 </fieldset>
+
+                {(draftStatus[sample.id] ?? 'Pending') === 'Fully Resolved' &&
+                  currentStatus !== 'Fully Resolved' && (
+                    <div className="mb-3 space-y-2 rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm">
+                      <p className="font-semibold text-gray-800">
+                        完全対応済みにするには以下を入力してください（必須）
+                      </p>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-medium">原因 *</span>
+                        <textarea
+                          rows={2}
+                          value={resolveDraft[sample.id]?.cause ?? ''}
+                          onChange={(e) =>
+                            updateResolveField(sample.id, 'cause', e.target.value)
+                          }
+                          className="rounded border border-gray-300 bg-white px-3 py-2"
+                          placeholder="例: ゲート端末のカメラレンズの汚れ"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-medium">対応内容 *</span>
+                        <textarea
+                          rows={2}
+                          value={resolveDraft[sample.id]?.response ?? ''}
+                          onChange={(e) =>
+                            updateResolveField(sample.id, 'response', e.target.value)
+                          }
+                          className="rounded border border-gray-300 bg-white px-3 py-2"
+                          placeholder="例: 遠隔で状況確認し、清掃手順を案内"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-medium">現場での解決方法 *</span>
+                        <textarea
+                          rows={2}
+                          value={resolveDraft[sample.id]?.onsiteFix ?? ''}
+                          onChange={(e) =>
+                            updateResolveField(sample.id, 'onsiteFix', e.target.value)
+                          }
+                          className="rounded border border-gray-300 bg-white px-3 py-2"
+                          placeholder="例: レンズを拭いて再スキャンし、正常読取を確認"
+                        />
+                      </label>
+                    </div>
+                  )}
 
                 {/* ===== 対応履歴（チャット） ===== */}
                 <div className="mb-3">

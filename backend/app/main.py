@@ -575,6 +575,11 @@ def create_sample_message(
         raise HTTPException(status_code=400, detail="メッセージ本文が空です。")
 
     if body.author_role == "staff":
+        if sample.status == "Fully Resolved":
+            raise HTTPException(
+                status_code=400,
+                detail="完全対応済みの問い合わせにはスタッフからメッセージを送れません。",
+            )
         if not body.email or not body.email.strip():
             raise HTTPException(
                 status_code=400, detail="スタッフ投稿には email が必要です。"

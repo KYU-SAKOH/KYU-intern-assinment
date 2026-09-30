@@ -61,13 +61,16 @@ def find_candidate_samples(
 ) -> list[SampleModel]:
     """
     DB から類似候補をざっくり拾う（キーワード OR 検索）。
-    一時保存（is_draft）は除外する。
+    一時保存（is_draft）は除外し、完全対応済み（Fully Resolved）のみ対象にする。
     """
     blob = " ".join(
         part for part in [expected_actions, actual_actions, error_code or ""] if part
     )
     keywords = _extract_keywords(blob)
-    query = db.query(SampleModel).filter(SampleModel.is_draft.is_(False))
+    query = db.query(SampleModel).filter(
+        SampleModel.is_draft.is_(False),
+        SampleModel.status == "Fully Resolved",
+    )
 
     if keywords:
         conditions = []

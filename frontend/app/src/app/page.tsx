@@ -38,6 +38,7 @@ type SimilarSample = {
   actual_actions?: string | null;
   error_code?: string | null;
   ai_initial_response?: string | null;
+  status?: SampleStatus;
 };
 
 type TriageResult = {
@@ -149,6 +150,8 @@ export default function Home() {
   const [selectedRegistered, setSelectedRegistered] = useState<RegisteredSample | null>(
     null,
   );
+  /** 登録済み詳細を閉じたときに戻る画面（トリアージ類似から開いた場合は triageResult） */
+  const [detailReturnView, setDetailReturnView] = useState<'home' | 'triageResult'>('home');
   const [editExpected, setEditExpected] = useState('');
   const [editActual, setEditActual] = useState('');
   const [editErrorCode, setEditErrorCode] = useState('');
@@ -464,12 +467,30 @@ export default function Home() {
     setEditExpected('');
     setEditActual('');
     setEditErrorCode('');
+    setDetailReturnView('home');
     resetDetailWizardFields();
     setActionError('');
     setActionSuccess('');
     setView('home');
     loadDrafts();
     loadRegistered();
+  };
+
+  /** 登録済み詳細から戻る（トリアージ類似経由なら triageResult へ） */
+  const leaveRegisteredDetail = () => {
+    if (detailReturnView === 'triageResult') {
+      setSelectedRegistered(null);
+      setEditExpected('');
+      setEditActual('');
+      setEditErrorCode('');
+      resetDetailWizardFields();
+      setActionError('');
+      setActionSuccess('');
+      setDetailReturnView('home');
+      setView('triageResult');
+      return;
+    }
+    goHome();
   };
 
   const handleResolved = () => {
@@ -640,8 +661,12 @@ export default function Home() {
     }
   };
 
-  const openRegisteredSample = (sample: RegisteredSample) => {
+  const openRegisteredSample = (
+    sample: RegisteredSample,
+    returnView: 'home' | 'triageResult' = 'home',
+  ) => {
     setSelectedRegistered(sample);
+    setDetailReturnView(returnView);
     setEditExpected(sample.expected_actions ?? '');
     setEditActual(sample.actual_actions ?? '');
     setEditErrorCode(sample.error_code ?? '');
@@ -670,6 +695,28 @@ export default function Home() {
     setActionError('');
     setActionSuccess('');
     setView('editRegistered');
+  };
+
+  /** トリアージ類似候補をクリック → 詳細を開く（戻ると triageResult） */
+  const openSimilarSample = async (similar: SimilarSample) => {
+    setActionError('');
+    try {
+      let full: RegisteredSample | undefined = registered.find((r) => r.id === similar.id);
+      if (!full) {
+        const res = await fetch(`${API_BASE_URL}/samples`);
+        if (!res.ok) {
+          throw new Error(`詳細の取得に失敗しました (${res.status})`);
+        }
+        const all: RegisteredSample[] = await res.json();
+        full = all.find((r) => r.id === similar.id);
+      }
+      if (!full) {
+        throw new Error('類似サンプルの詳細が見つかりませんでした。');
+      }
+      openRegisteredSample(full, 'triageResult');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '詳細を開けませんでした。');
+    }
   };
 
   const handleRegisteredSave = async (e: React.FormEvent) => {
@@ -901,23 +948,37 @@ export default function Home() {
             </p>
           </div>
           <div>
-            <h2 className="mb-2 font-semibold">類似サンプル</h2>
+            <h2 className="mb-2 font-semibold">類似サンプル（完全対応済み）</h2>
             {triage.similar_samples.length === 0 ? (
               <p className="text-sm text-gray-600">類似する過去事例は見つかりませんでした。</p>
             ) : (
               <ul className="space-y-3">
                 {triage.similar_samples.map((sample) => (
-                  <li key={sample.id} className="rounded border border-gray-200 px-3 py-3 text-sm">
-                    <p className="font-medium">#{sample.id} {sample.name}</p>
-                    {sample.expected_actions && (
-                      <p className="mt-1 text-gray-700">{sample.expected_actions}</p>
-                    )}
-                    {sample.actual_actions && (
-                      <p className="mt-1 text-gray-600">{sample.actual_actions}</p>
-                    )}
+                  <li key={sample.id}>
+                    <button
+                      type="button"
+                      onClick={() => void openSimilarSample(sample)}
+                      className="w-full rounded border border-gray-200 px-3 py-3 text-left text-sm hover:border-gray-400 hover:bg-gray-50"
+                    >
+                      <p className="font-medium">
+                        #{sample.id} {sample.name}
+                        <span className="ml-2 text-xs font-normal text-gray-500">
+                          クリックで詳細
+                        </span>
+                      </p>
+                      {sample.expected_actions && (
+                        <p className="mt-1 text-gray-700">{sample.expected_actions}</p>
+                      )}
+                      {sample.actual_actions && (
+                        <p className="mt-1 text-gray-600">{sample.actual_actions}</p>
+                      )}
+                    </button>
                   </li>
                 ))}
               </ul>
+            )}
+            {actionError && view === 'triageResult' && (
+              <p className="mt-2 text-sm text-red-700">{actionError}</p>
             )}
           </div>
           <div className="flex flex-col gap-4 rounded border border-gray-200 bg-gray-50 px-4 py-4">
@@ -1390,7 +1451,7 @@ export default function Home() {
                   )}
                   <button
                     type="button"
-                    onClick={goHome}
+                    onClick={leaveRegisteredDetail}
                     className="text-sm text-gray-600 underline"
                   >
                     キャンセル
@@ -1466,7 +1527,7 @@ export default function Home() {
               )}
               <button
                 type="button"
-                onClick={goHome}
+                onClick={leaveRegisteredDetail}
                 className="text-sm text-gray-600 underline"
               >
                 戻る
@@ -1475,20 +1536,15 @@ export default function Home() {
           )}
 
           <div className="mt-4 space-y-2">
-            {!canEditRegisteredStatus(selectedRegistered.status) && (
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="登録時メール（チャット送信用）*"
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            {canEditRegisteredStatus(selectedRegistered.status) ? (
+              <SampleChat
+                sampleId={selectedRegistered.id}
+                mode="staff"
+                ownerEmail={email}
               />
+            ) : (
+              <SampleChat sampleId={selectedRegistered.id} mode="staff" readOnly />
             )}
-            <SampleChat
-              sampleId={selectedRegistered.id}
-              mode="staff"
-              ownerEmail={email}
-            />
           </div>
         </section>
       )}

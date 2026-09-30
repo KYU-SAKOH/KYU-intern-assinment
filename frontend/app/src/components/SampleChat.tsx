@@ -26,6 +26,8 @@ type SampleChatProps = {
   mode: AuthorRole;
   /** staff 投稿時に使う登録メール（親フォームと共有） */
   ownerEmail?: string;
+  /** true のとき履歴閲覧のみ（送信フォームを出さない） */
+  readOnly?: boolean;
 };
 
 async function readApiError(res: Response, fallback: string): Promise<string> {
@@ -38,7 +40,12 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
-export default function SampleChat({ sampleId, mode, ownerEmail = '' }: SampleChatProps) {
+export default function SampleChat({
+  sampleId,
+  mode,
+  ownerEmail = '',
+  readOnly = false,
+}: SampleChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [body, setBody] = useState('');
   const [loading, setLoading] = useState(false);
@@ -67,6 +74,7 @@ export default function SampleChat({ sampleId, mode, ownerEmail = '' }: SampleCh
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (readOnly) return;
     setError('');
     if (!body.trim()) {
       setError('メッセージを入力してください。');
@@ -145,28 +153,36 @@ export default function SampleChat({ sampleId, mode, ownerEmail = '' }: SampleCh
         })}
       </div>
 
-      <form onSubmit={handleSend} className="border-t border-gray-200 px-3 py-3">
-        {mode === 'staff' && !ownerEmail.trim() && (
-          <p className="mb-2 text-xs text-amber-700">
-            送信するには、上の「登録時メール」を入力してください。
+      {readOnly ? (
+        <div className="border-t border-gray-200 px-3 py-3">
+          <p className="text-xs text-gray-600">
+            完全対応済みのため、スタッフからの追加投稿はできません。
           </p>
-        )}
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={2}
-          placeholder={mode === 'admin' ? '管理者として返信…' : 'スタッフとして送信…'}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-        />
-        {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
-        <button
-          type="submit"
-          disabled={sending}
-          className="mt-2 rounded bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
-        >
-          {sending ? '送信中…' : '送信'}
-        </button>
-      </form>
+        </div>
+      ) : (
+        <form onSubmit={handleSend} className="border-t border-gray-200 px-3 py-3">
+          {mode === 'staff' && !ownerEmail.trim() && (
+            <p className="mb-2 text-xs text-amber-700">
+              送信するには、上の「登録時メール」を入力してください。
+            </p>
+          )}
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={2}
+            placeholder={mode === 'admin' ? '管理者として返信…' : 'スタッフとして送信…'}
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          />
+          {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+          <button
+            type="submit"
+            disabled={sending}
+            className="mt-2 rounded bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+          >
+            {sending ? '送信中…' : '送信'}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
