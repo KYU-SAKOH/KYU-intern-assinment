@@ -23,7 +23,6 @@ SeverityLevel = Literal["low", "medium", "high"]
 
 MIN_REPRODUCTION_STEPS = 3
 MAX_REPRODUCTION_STEPS = 15
-MIN_REPRODUCTION_STEP_LEN = 8
 
 
 def serialize_reproduction_steps(steps: list[str]) -> str:
@@ -52,11 +51,6 @@ def assert_reproduction_steps_valid(steps: list[str]) -> list[str]:
         )
     if len(cleaned) > MAX_REPRODUCTION_STEPS:
         raise ValueError(f"再現手順は最大 {MAX_REPRODUCTION_STEPS} 件までです。")
-    for i, step in enumerate(cleaned, start=1):
-        if len(step) < MIN_REPRODUCTION_STEP_LEN:
-            raise ValueError(
-                f"手順 {i} が短すぎます（{MIN_REPRODUCTION_STEP_LEN} 文字以上）。"
-            )
     return cleaned
 
 

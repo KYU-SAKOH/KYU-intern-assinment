@@ -11,7 +11,7 @@
 import os
 import re
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
@@ -134,10 +134,21 @@ def _normalize_email(email: str) -> str:
 
 
 DRAFT_PLACEHOLDER_PLACE = "（未入力）"
+DRAFT_TTL_DAYS = 14
 
 
 def _draft_placeholder_email() -> str:
     return f"draft-{uuid.uuid4().hex}@incomplete.local"
+
+
+def _purge_expired_drafts(db: Session) -> None:
+    """初回入力（date）から DRAFT_TTL_DAYS を超えた一時保存を物理削除する。"""
+    cutoff = datetime.utcnow() - timedelta(days=DRAFT_TTL_DAYS)
+    db.query(SampleModel).filter(
+        SampleModel.is_draft.is_(True),
+        SampleModel.date < cutoff,
+    ).delete(synchronize_session=False)
+    db.commit()
 
 
 def _verify_owner_email(db_sample: SampleModel, email: str) -> None:
@@ -183,6 +194,7 @@ def get_samples(
     Staff 画面は付けない（全件）か、絞り込み時だけ付ける。
     管理者画面は status でも絞り込める。
     """
+    _purge_expired_drafts(db)
     query = db.query(SampleModel)
 
     # --- 一時保存 / 本登録の切り分け ---
@@ -339,6 +351,7 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
 @app.post("/samples/draft", response_model=SampleResponse, status_code=201)
 def create_draft_sample(body: SampleDraftCreate, db: Session = Depends(get_db)):
     """トップページの一時保存。報告者名・トリアージ内容と日時を確定し、詳細は後から入力する。"""
+    _purge_expired_drafts(db)
     now = datetime.utcnow()
     db_sample = SampleModel(
         name=body.name.strip(),
@@ -403,6 +416,7 @@ def finalize_draft_sample(
     sample_id: int, body: SampleFinalize, db: Session = Depends(get_db)
 ):
     """一時保存サンプルに詳細を入力して本登録にする。"""
+    _purge_expired_drafts(db)
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -510,6 +524,19 @@ def admin_update_sample(
     db.commit()
     db.refresh(db_sample)
     return db_sample
+
+
+@app.delete("/samples/{sample_id}/admin", status_code=204)
+def admin_delete_sample(sample_id: int, db: Session = Depends(get_db)):
+    """
+    管理者向け削除（DELETE /samples/{id}/admin）。
+    メール照合・ステータス制限なし。デモ用のためログイン認証は行わない。
+    """
+    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    db.delete(sample)
+    db.commit()
 
 
 @app.delete("/samples/{sample_id}", status_code=204)

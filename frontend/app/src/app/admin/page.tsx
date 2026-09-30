@@ -25,6 +25,7 @@ import type { components } from '@/types/api';
  * 使う API:
  *  - GET  /samples?sort=priority&q=&trouble_type=&status=&date_from=&date_to=
  *  - PATCH /samples/{id}/admin  … status 更新
+ *  - DELETE /samples/{id}/admin … ステータス問わず削除
  *  - GET/POST /samples/{id}/messages … 対応履歴
  */
 
@@ -66,6 +67,7 @@ export default function AdminPage() {
   const [draftStatus, setDraftStatus] = useState<Record<number, SampleStatus>>({});
   const [resolveDraft, setResolveDraft] = useState<Record<number, ResolveFields>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -233,6 +235,46 @@ export default function AdminPage() {
       setError(e instanceof Error ? e.message : '保存に失敗しました');
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const handleAdminDelete = async (id: number) => {
+    if (!window.confirm(`サンプル #${id} を削除します。よろしいですか？`)) {
+      return;
+    }
+    setDeletingId(id);
+    setMessage('');
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/samples/${id}/admin`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        let detail = `削除に失敗しました (${res.status})`;
+        try {
+          const errBody = await res.json();
+          if (typeof errBody?.detail === 'string') detail = errBody.detail;
+        } catch {
+          /* JSON でない応答なら上の detail を使う */
+        }
+        throw new Error(detail);
+      }
+      setSamples((prev) => prev.filter((s) => s.id !== id));
+      setDraftStatus((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setResolveDraft((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setMessage(`ID ${id} を削除しました。`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '削除に失敗しました');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -529,14 +571,24 @@ export default function AdminPage() {
                   <SampleChat sampleId={sample.id} mode="admin" />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleSave(sample.id)}
-                  disabled={savingId === sample.id}
-                  className="rounded bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-900 disabled:opacity-60"
-                >
-                  {savingId === sample.id ? '保存中…' : '対応状況を保存'}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSave(sample.id)}
+                    disabled={savingId === sample.id || deletingId === sample.id}
+                    className="rounded bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-900 disabled:opacity-60"
+                  >
+                    {savingId === sample.id ? '保存中…' : '対応状況を保存'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAdminDelete(sample.id)}
+                    disabled={savingId === sample.id || deletingId === sample.id}
+                    className="rounded border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  >
+                    {deletingId === sample.id ? '削除中…' : '削除'}
+                  </button>
+                </div>
               </li>
             );
           })}

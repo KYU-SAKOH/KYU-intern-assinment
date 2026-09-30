@@ -92,8 +92,23 @@ const SEVERITY_LABELS: Record<string, string> = {
 
 function stepsLookApproved(steps: string[]): boolean {
   const cleaned = steps.map((s) => s.trim()).filter(Boolean);
-  return cleaned.length >= 3 && cleaned.every((s) => s.length >= 8);
+  return cleaned.length >= 3;
 }
+
+function stepRowLabel(index: number, total: number): string {
+  if (index === 0) return '開始';
+  if (total >= 2 && index === total - 1) return '結果・現場対応';
+  return `${index + 1}.`;
+}
+
+function stepRowPlaceholder(index: number, total: number): string {
+  if (index === 0) return '例: ゲート端末のアプリを開く';
+  if (total >= 2 && index === total - 1) {
+    return '例: 「読み取れません」と出た。レンズを拭いて再スキャンしたが改善せず';
+  }
+  return '例: QRコードをかざす';
+}
+
 
 function canEditRegisteredStatus(status: string | null | undefined): boolean {
   const s = toSampleStatus(status);
@@ -295,6 +310,17 @@ export default function Home() {
     invalidateStepsApproval();
   };
 
+  const moveReproductionStep = (index: number, direction: -1 | 1) => {
+    setReproductionSteps((prev) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+    invalidateStepsApproval();
+  };
+
   const cleanedReproductionSteps = () =>
     reproductionSteps.map((s) => s.trim()).filter(Boolean);
 
@@ -347,11 +373,6 @@ export default function Home() {
     const steps = cleanedReproductionSteps();
     if (steps.length < 3) {
       setAssistError('再現手順は少なくとも3件入力してください。');
-      setStepsAiApproved(false);
-      return;
-    }
-    if (steps.some((s) => s.length < 8)) {
-      setAssistError('各手順は8文字以上にしてください。');
       setStepsAiApproved(false);
       return;
     }
@@ -1253,30 +1274,55 @@ export default function Home() {
                 {detailStep === 2 && (
                   <>
                     <p className="text-xs text-gray-600">
-                      操作を時系列で書いてください（最低3件・最大15件・各8文字以上）。
-                      AIチェックに合格すると次へ進めます。
+                      操作を時系列で書いてください（最低3件・最大15件）。
+                      1行目はきっかけの操作、最後の行は結果と現場で試した対応まで書いてください。
+                      AIが不足があれば指摘します。軽い指摘があっても、内容が追えると判断されれば次へ進めます。
                     </p>
                     <ul className="space-y-2">
                       {reproductionSteps.map((stepText, index) => (
-                        <li key={index} className="flex gap-2">
-                          <span className="mt-2 w-6 shrink-0 text-xs text-gray-500">
-                            {index + 1}.
+                        <li key={index} className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
+                          <span
+                            className={`mt-2 shrink-0 text-xs font-semibold ${
+                              index === 0 || index === reproductionSteps.length - 1
+                                ? 'w-28 text-gray-800'
+                                : 'w-8 text-gray-500'
+                            }`}
+                          >
+                            {stepRowLabel(index, reproductionSteps.length)}
                           </span>
                           <input
                             type="text"
                             value={stepText}
                             onChange={(e) => updateReproductionStep(index, e.target.value)}
-                            placeholder={`操作 ${index + 1}`}
+                            placeholder={stepRowPlaceholder(index, reproductionSteps.length)}
                             className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
                           />
-                          <button
-                            type="button"
-                            onClick={() => removeReproductionStep(index)}
-                            disabled={reproductionSteps.length <= 1}
-                            className="shrink-0 text-xs text-red-700 underline disabled:opacity-40"
-                          >
-                            削除
-                          </button>
+                          <div className="flex shrink-0 items-center gap-2 pt-2">
+                            <button
+                              type="button"
+                              onClick={() => moveReproductionStep(index, -1)}
+                              disabled={index === 0}
+                              className="text-xs text-gray-700 underline disabled:opacity-40"
+                            >
+                              上へ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveReproductionStep(index, 1)}
+                              disabled={index === reproductionSteps.length - 1}
+                              className="text-xs text-gray-700 underline disabled:opacity-40"
+                            >
+                              下へ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeReproductionStep(index)}
+                              disabled={reproductionSteps.length <= 1}
+                              className="text-xs text-red-700 underline disabled:opacity-40"
+                            >
+                              削除
+                            </button>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -1656,30 +1702,55 @@ export default function Home() {
             {detailStep === 2 && (
               <>
                 <p className="text-xs text-gray-600">
-                  操作を時系列で書いてください（最低3件・最大15件・各8文字以上）。
-                  AIチェックに合格すると次へ進めます。
+                  操作を時系列で書いてください（最低3件・最大15件）。
+                  1行目はきっかけの操作、最後の行は結果と現場で試した対応まで書いてください。
+                  AIが不足があれば指摘します。軽い指摘があっても、内容が追えると判断されれば次へ進めます。
                 </p>
                 <ul className="space-y-2">
                   {reproductionSteps.map((stepText, index) => (
-                    <li key={index} className="flex gap-2">
-                      <span className="mt-2 w-6 shrink-0 text-xs text-gray-500">
-                        {index + 1}.
+                    <li key={index} className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
+                      <span
+                        className={`mt-2 shrink-0 text-xs font-semibold ${
+                          index === 0 || index === reproductionSteps.length - 1
+                            ? 'w-28 text-gray-800'
+                            : 'w-8 text-gray-500'
+                        }`}
+                      >
+                        {stepRowLabel(index, reproductionSteps.length)}
                       </span>
                       <input
                         type="text"
                         value={stepText}
                         onChange={(e) => updateReproductionStep(index, e.target.value)}
-                        placeholder={`操作 ${index + 1}（例: 端末の電源を入れてホーム画面を確認）`}
+                        placeholder={stepRowPlaceholder(index, reproductionSteps.length)}
                         className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
                       />
-                      <button
-                        type="button"
-                        onClick={() => removeReproductionStep(index)}
-                        disabled={reproductionSteps.length <= 1}
-                        className="shrink-0 text-xs text-red-700 underline disabled:opacity-40"
-                      >
-                        削除
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => moveReproductionStep(index, -1)}
+                          disabled={index === 0}
+                          className="text-xs text-gray-700 underline disabled:opacity-40"
+                        >
+                          上へ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveReproductionStep(index, 1)}
+                          disabled={index === reproductionSteps.length - 1}
+                          className="text-xs text-gray-700 underline disabled:opacity-40"
+                        >
+                          下へ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeReproductionStep(index)}
+                          disabled={reproductionSteps.length <= 1}
+                          className="text-xs text-red-700 underline disabled:opacity-40"
+                        >
+                          削除
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -1860,6 +1931,9 @@ export default function Home() {
       {view === 'home' && (
         <section className="mt-10 border-t border-gray-200 pt-8">
           <h2 className="mb-3 text-lg font-semibold">一時保存中のサンプル</h2>
+          <p className="mb-3 text-xs text-gray-600">
+            一時保存は最初の入力から2週間で自動削除されます。
+          </p>
           <form onSubmit={handleDraftSearch} className="mb-4 flex gap-2">
             <input
               type="search"

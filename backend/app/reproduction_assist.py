@@ -17,7 +17,6 @@ from triage import DEFAULT_MODEL
 
 MIN_STEPS = 3
 MAX_STEPS = 15
-MIN_STEP_LEN = 8
 
 
 def normalize_steps(steps: list[str]) -> list[str]:
@@ -27,7 +26,8 @@ def normalize_steps(steps: list[str]) -> list[str]:
 
 def validate_steps_basic(steps: list[str]) -> list[str]:
     """
-    件数・文字数の基本ルール。違反があれば理由メッセージのリストを返す。
+    件数の基本ルール。違反があれば理由メッセージのリストを返す。
+    （各手順の意味・具体性は AI / ヒューリスティックのアドバイス側で見る）
     """
     cleaned = normalize_steps(steps)
     errors: list[str] = []
@@ -37,11 +37,6 @@ def validate_steps_basic(steps: list[str]) -> list[str]:
         )
     if len(cleaned) > MAX_STEPS:
         errors.append(f"再現手順は最大 {MAX_STEPS} 件までです。")
-    for i, step in enumerate(cleaned, start=1):
-        if len(step) < MIN_STEP_LEN:
-            errors.append(
-                f"手順 {i} が短すぎます（{MIN_STEP_LEN} 文字以上にしてください）。"
-            )
     return errors
 
 
@@ -71,13 +66,7 @@ def _heuristic_gaps(steps: list[str], expected: str, actual: str) -> list[str]:
                 )
                 break
 
-    total_len = sum(len(s) for s in steps)
-    if len(steps) >= MIN_STEPS and total_len < MIN_STEPS * MIN_STEP_LEN + 10:
-        warnings.append(
-            "全体の記述が短すぎます。各操作で「何をしたか」を具体的に書いてください。"
-        )
-
-    # トリアージで触れているのに手順に無い語の簡易チェック
+    # トリアージで触れているのに手順に無い語の簡易チェック（警告のみ）
     context = f"{expected}\n{actual}"
     for keyword, label in (
         ("チケット", "チケット操作"),
@@ -90,6 +79,18 @@ def _heuristic_gaps(steps: list[str], expected: str, actual: str) -> list[str]:
         if keyword in context and keyword not in joined:
             warnings.append(
                 f"報告内容に「{keyword}」がありますが、再現手順に{label}がありません。"
+                "（改善案です。必須ではありません）"
+            )
+
+    # 最終ステップに結果・現場対応の気配が薄い場合の軽い提案
+    if steps:
+        last = steps[-1]
+        if not re.search(
+            r"結果|表示|エラー|失敗|出た|試|拭|再|確認|対応|改善", last
+        ):
+            warnings.append(
+                "最後の行に「結果」や「現場で試した対応」を書くと分かりやすくなります。"
+                "（改善案です。必須ではありません）"
             )
 
     # 重複除去（順序維持）
@@ -117,6 +118,8 @@ def _suggest_next(steps: list[str], expected: str, actual: str) -> list[str]:
         suggestions.append("バーコード／QR をスキャンする")
     if not any(re.search(r"結果|表示|エラー|失敗", s) for s in steps):
         suggestions.append("画面に表示された結果（エラー文言含む）を確認する")
+    if not any(re.search(r"試|拭|再|対応|改善", s) for s in steps):
+        suggestions.append("現場で試した応急対応（清掃・再接続など）とその結果を書く")
     if "再起動" in context and "再起動" not in "\n".join(steps):
         suggestions.append("端末を再起動して同じ操作をやり直す")
 
@@ -136,6 +139,13 @@ def _suggest_next(steps: list[str], expected: str, actual: str) -> list[str]:
     return filtered or suggestions[:3]
 
 
+def _hard_block_warnings(warnings: list[str]) -> bool:
+    """合格を止めるべきハードな指摘があるか。"""
+    return any(
+        ("中間操作" in w) or ("ほぼ同じ" in w) for w in warnings
+    )
+
+
 def _mock_assist(
     steps: list[str],
     expected: str,
@@ -146,14 +156,8 @@ def _mock_assist(
     warnings = _heuristic_gaps(cleaned, expected, actual)
     suggestions = _suggest_next(cleaned, expected, actual)
     basic_ok = not validate_steps_basic(cleaned)
-    # 基本ルールを満たし、ヒューリスティック警告が「件数・長さ以外」で多くないこと
-    soft = [w for w in warnings if "少なくとも" not in w and "短すぎます" not in w and "最大" not in w]
-    can_proceed = basic_ok and len(soft) == 0
-    if basic_ok and soft:
-        # 文脈キーワード欠落だけの軽い警告は1件まで許容し、2件以上で止める
-        can_proceed = len(soft) <= 1 and not any(
-            "中間操作" in w or "ほぼ同じ" in w for w in soft
-        )
+    # 件数OKなら基本合格。ハード指摘（中間欠落・重複）だけ不合格
+    can_proceed = basic_ok and not _hard_block_warnings(warnings)
     return {
         "gap_warnings": warnings,
         "suggested_next_steps": suggestions,
@@ -182,20 +186,28 @@ def _run_gemini_assist(
         }
 
     system_prompt = """あなたは Terravie（園館向けチケット・入場システム）の再現手順レビューアです。
-スタッフが時系列で書いた操作手順を見て、飛躍・省略を指摘し、次に書くべき操作を提案してください。
+スタッフが時系列で書いた操作手順を見て、改善点を指摘し、次に書くべき操作を提案してください。
+厳しすぎず、現場スタッフが短く書いても通せるようにしてください。
 
 必ず JSON のみを返し、キーは次のとおりです:
 {
-  "gap_warnings": string[],  // 飛躍・省略・曖昧さの指摘（日本語）。問題なければ []
+  "gap_warnings": string[],  // 改善提案（日本語）。無くてもよい
   "suggested_next_steps": string[],  // 次に追加すべき操作の候補（短文・最大4）
-  "can_proceed": boolean  // 手順として十分具体的で時系列が追えるなら true
+  "can_proceed": boolean
 }
 
-can_proceed=true にする条件:
-- 操作が時系列で追える
-- 明らかな中間操作の欠落がない
-- 各ステップが具体的（何をしたか分かる）
-雑に短い手順や、起動直後にエラーだけ、のような飛躍がある場合は false。
+can_proceed=true にする条件（こちらをデフォルト寄りに）:
+- 手順が3件以上ある
+- 各行が「何をしたか」がざっくり分かる操作である
+- 最終ステップに結果や現場で試した応急対応があると望ましいが、無くても軽微なら true のまま
+
+can_proceed=false にするのは次のときだけ:
+- 空に近い・意味不明な文字列ばかり
+- 操作が1つも読めない
+- 「起動」直後に「エラー」だけで中間が完全に無い、など明らかな大飛躍
+- ほぼ同じ文が連続している
+
+gap_warnings はアドバイスとして積極的に出してよいが、軽微な指摘では can_proceed を false にしないこと。
 """
 
     user_prompt = {
