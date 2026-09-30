@@ -53,8 +53,9 @@ class SampleTriageCompleteCreate(BaseModel):
 
 
 class SampleDraftCreate(BaseModel):
-    """POST /samples/draft … 一時保存（トリアージ内容のみ）。"""
+    """POST /samples/draft … 一時保存（報告者名 + トリアージ内容）。"""
 
+    name: str = Field(min_length=1)
     expected_actions: str = Field(min_length=1)
     actual_actions: str = Field(min_length=1)
     error_code: str | None = None

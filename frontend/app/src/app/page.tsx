@@ -49,6 +49,7 @@ type TriageResult = {
 
 type DraftSample = {
   id: number;
+  name: string;
   date: string;
   expected_actions?: string | null;
   actual_actions?: string | null;
@@ -208,12 +209,10 @@ export default function Home() {
     setView('home');
   };
 
-  const handleAnalyze = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const runTriage = async () => {
     setTriageError('');
     setActionError('');
     setActionSuccess('');
-    setTriage(null);
 
     if (!expectedActions.trim() || !actualActions.trim()) {
       setTriageError(
@@ -246,6 +245,12 @@ export default function Home() {
     }
   };
 
+  const handleAnalyze = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTriage(null);
+    await runTriage();
+  };
+
   const goHome = () => {
     setSelectedRegistered(null);
     setEditExpected('');
@@ -270,6 +275,10 @@ export default function Home() {
   };
 
   const openDetailFormNew = () => {
+    if (!name.trim()) {
+      setActionError('報告者名を入力してください。');
+      return;
+    }
     setDetailMode('newComplete');
     setSelectedDraftId(null);
     setDetailContext({
@@ -278,7 +287,6 @@ export default function Home() {
       error: errorCode.trim(),
       aiResponse: triage?.initial_response ?? null,
     });
-    setName('');
     setPlace('');
     setTroubleType('');
     setEmail('');
@@ -295,7 +303,7 @@ export default function Home() {
       error: draft.error_code ?? '',
       aiResponse: null,
     });
-    setName('');
+    setName(draft.name);
     setPlace('');
     setTroubleType('');
     setEmail('');
@@ -305,6 +313,10 @@ export default function Home() {
 
   const handleTemporarySave = async () => {
     if (!triage || triage.status !== 'ok') return;
+    if (!name.trim()) {
+      setActionError('報告者名を入力してください。');
+      return;
+    }
     setSubmitting(true);
     setActionError('');
     try {
@@ -312,6 +324,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          name: name.trim(),
           expected_actions: expectedActions.trim(),
           actual_actions: actualActions.trim(),
           error_code: errorCode.trim() || null,
@@ -548,6 +561,17 @@ export default function Home() {
           <form onSubmit={handleAnalyze} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-semibold">
+                報告者名 <span className="text-red-600">*</span>
+              </span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="rounded border border-gray-300 px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-semibold">
                 実施した操作と期待結果 <span className="text-red-600">*</span>
               </span>
               <textarea
@@ -631,6 +655,64 @@ export default function Home() {
                 ))}
               </ul>
             )}
+          </div>
+          <div className="flex flex-col gap-4 rounded border border-gray-200 bg-gray-50 px-4 py-4">
+            <h2 className="font-semibold">報告内容（編集可）</h2>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-semibold">
+                報告者名 <span className="text-red-600">*</span>
+              </span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="rounded border border-gray-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-semibold">
+                実施した操作と期待結果 <span className="text-red-600">*</span>
+              </span>
+              <textarea
+                value={expectedActions}
+                onChange={(e) => setExpectedActions(e.target.value)}
+                rows={4}
+                className="rounded border border-gray-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-semibold">
+                実施した操作と実際の結果 <span className="text-red-600">*</span>
+              </span>
+              <textarea
+                value={actualActions}
+                onChange={(e) => setActualActions(e.target.value)}
+                rows={4}
+                className="rounded border border-gray-300 bg-white px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-semibold">エラーコード（任意）</span>
+              <input
+                type="text"
+                value={errorCode}
+                onChange={(e) => setErrorCode(e.target.value)}
+                className="rounded border border-gray-300 bg-white px-3 py-2"
+              />
+            </label>
+            {triageError && (
+              <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {triageError}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={analyzing}
+              onClick={() => void runTriage()}
+              className="rounded bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+            >
+              {analyzing ? 'AI 分析中…' : '再度 AI 一次回答を取得'}
+            </button>
           </div>
           <div className="flex flex-wrap gap-3">
             <button
@@ -856,13 +938,11 @@ export default function Home() {
             <h2 className="font-semibold">
               {detailMode === 'finalizeDraft' ? '一時保存の詳細入力' : '詳細を入力'}
             </h2>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="報告者名 *"
-              className="rounded border border-gray-300 px-3 py-2"
-            />
+            {name.trim() && (
+              <p className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                報告者名: {name}
+              </p>
+            )}
             <input
               type="text"
               value={place}
@@ -947,6 +1027,9 @@ export default function Home() {
                   >
                     <p className="text-xs text-gray-500">
                       {new Date(draft.date).toLocaleString('ja-JP')}
+                    </p>
+                    <p className="mt-1 font-medium text-gray-900">
+                      報告者: {draft.name}
                     </p>
                     {draft.expected_actions && (
                       <p className="mt-1">

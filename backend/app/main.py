@@ -77,7 +77,6 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-DRAFT_PLACEHOLDER_NAME = "（未入力）"
 DRAFT_PLACEHOLDER_PLACE = "（未入力）"
 
 
@@ -234,10 +233,10 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
 
 @app.post("/samples/draft", response_model=SampleResponse, status_code=201)
 def create_draft_sample(body: SampleDraftCreate, db: Session = Depends(get_db)):
-    """トップページの一時保存。トリアージ内容と日時のみ確定し、詳細は後から入力する。"""
+    """トップページの一時保存。報告者名・トリアージ内容と日時を確定し、詳細は後から入力する。"""
     now = datetime.utcnow()
     db_sample = SampleModel(
-        name=DRAFT_PLACEHOLDER_NAME,
+        name=body.name.strip(),
         date=now,
         place=DRAFT_PLACEHOLDER_PLACE,
         trouble_type="customer",
