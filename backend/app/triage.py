@@ -5,16 +5,13 @@
 - 情報不足や複数トラブル混在なら needs_reentry
 - 問題なければ類似サンプル ID と一次回答を返す
 
-TRIAGE_MODE:
-  - mock … Gemini なし（ローカル検証用）
-  - gemini … GEMINI_API_KEY 必須
-  - 未設定 … キーがあれば gemini、なければ mock
+常に Gemini API を使う（mock なし）。GEMINI_API_KEY が必須。
+読む順番の目安: run_triage → find_candidate_samples → _run_gemini_triage
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
@@ -22,18 +19,9 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from gemini_client import DEFAULT_MODEL, get_client, require_api_key
 from models import SampleModel
-
-# 既定モデル（環境変数 GEMINI_MODEL で上書き可）
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-
-# 複数トラブル混在の簡易判定用キーワード
-_MULTI_ISSUE_MARKERS = ("また", "別件", "もう一つ", "もうひとつ", "および", "加えて")
-
-
-def _like_pattern(keyword: str) -> str:
-    escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+from text_utils import like_pattern
 
 
 def _extract_keywords(text: str, limit: int = 8) -> list[str]:
@@ -75,7 +63,7 @@ def find_candidate_samples(
     if keywords:
         conditions = []
         for keyword in keywords:
-            pattern = _like_pattern(keyword)
+            pattern = like_pattern(keyword)
             conditions.append(
                 or_(
                     SampleModel.trouble_detail.like(pattern, escape="\\"),
@@ -107,89 +95,11 @@ def _sample_brief(sample: SampleModel) -> dict[str, Any]:
     }
 
 
-def _looks_like_multiple_issues(expected: str, actual: str) -> bool:
-    """
-    複数の無関係なトラブルが1件に混在していそうか、簡易ルールで判定する。
-    区切り語の出現、または長い本文に空行区切りのブロックが2つ以上ある場合。
-    """
-    combined = f"{expected}\n{actual}"
-    marker_hits = sum(1 for m in _MULTI_ISSUE_MARKERS if m in combined)
-    if marker_hits >= 2:
-        return True
-    # 空行で区切られた段落が2つ以上、かつ全体が長い
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", combined) if p.strip()]
-    if len(paragraphs) >= 2 and len(combined) >= 80:
-        return True
-    return False
-
-
-def _mock_initial_response(
-    expected: str, actual: str, error_code: str | None
-) -> str:
-    """モック用の固定テンプレート一次回答（日本語）。"""
-    expected_short = expected if len(expected) <= 120 else expected[:117] + "…"
-    actual_short = actual if len(actual) <= 120 else actual[:117] + "…"
-    code_line = f"エラーコード: {error_code}\n" if error_code else ""
-    return (
-        "【モック一次回答】AI API を使わずに生成したデモ用の回答です。\n\n"
-        f"報告内容（期待）: {expected_short}\n"
-        f"報告内容（実際）: {actual_short}\n"
-        f"{code_line}\n"
-        "想定原因: 端末・ネットワーク・チケット状態のいずれかで、"
-        "期待どおりの動作に至っていない可能性があります。\n"
-        "一時的な解決方法: 対象端末の再起動、ネットワーク再接続、"
-        "別端末での再試行を実施してください。\n"
-        "対応要否: 園館側で一時対応を試したうえで再現する場合は、"
-        "Terravie 開発チームへのエスカレーションを推奨します。\n"
-        "次に確認すべき点: 発生時刻、対象チケット種別、端末ID、"
-        "他ゲストでも同様か。"
-    )
-
-
-def _run_mock_triage(
-    db: Session,
-    expected: str,
-    actual: str,
-    code: str | None,
-) -> dict[str, Any]:
-    """AI API なしのルールベース・トリアージ。"""
-    if len(expected) < 10 or len(actual) < 10:
-        return {
-            "status": "needs_reentry",
-            "reentry_reasons": [
-                "記述が短すぎます。実施した操作と、期待結果・実際の結果を具体的に書いてください。"
-            ],
-            "similar_sample_ids": [],
-            "initial_response": None,
-        }
-
-    if _looks_like_multiple_issues(expected, actual):
-        return {
-            "status": "needs_reentry",
-            "reentry_reasons": [
-                "複数のトラブルが1件に混在している可能性があります。"
-                "「また」「別件」などでつながず、1件ずつ書き直してください。"
-            ],
-            "similar_sample_ids": [],
-            "initial_response": None,
-        }
-
-    candidates = find_candidate_samples(db, expected, actual, code)
-    similar_ids = [s.id for s in candidates[:5]]
-
-    return {
-        "status": "ok",
-        "reentry_reasons": [],
-        "similar_sample_ids": similar_ids,
-        "initial_response": _mock_initial_response(expected, actual, code),
-    }
-
-
 def _parse_triage_response(
     parsed: dict[str, Any],
     candidates: list[SampleModel],
 ) -> dict[str, Any]:
-    """Gemini / mock 共通の JSON 応答バリデーション。"""
+    """Gemini JSON 応答のバリデーションと正規化。"""
     status = parsed.get("status")
     if status not in ("ok", "needs_reentry"):
         status = "needs_reentry"
@@ -250,7 +160,6 @@ def _run_gemini_triage(
     api_key: str,
 ) -> dict[str, Any]:
     """Gemini API によるトリアージ。"""
-    from google import genai
     from google.genai import types
 
     if len(expected) < 10 or len(actual) < 10:
@@ -298,7 +207,7 @@ ok のときの initial_response は、次の4項目をこの順番・見出し�
         "candidate_samples": candidate_payload,
     }
 
-    client = genai.Client(api_key=api_key)
+    client = get_client(api_key)
     try:
         response = client.models.generate_content(
             model=DEFAULT_MODEL,
@@ -340,7 +249,7 @@ def run_triage(
     error_code: str | None,
 ) -> dict[str, Any]:
     """
-    トリアージを実行する（mock または Gemini）。
+    トリアージを実行する（常に Gemini）。
 
     戻り値:
       {
@@ -350,29 +259,8 @@ def run_triage(
         "initial_response": str | None,
       }
     """
-    mode = os.getenv("TRIAGE_MODE", "").strip().lower()
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-
+    api_key = require_api_key()
     expected = expected_actions.strip()
     actual = actual_actions.strip()
     code = (error_code or "").strip() or None
-
-    # TRIAGE_MODE=gemini のときはキー必須（空なら mock に落とさない）
-    if mode == "gemini":
-        if not api_key:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "TRIAGE_MODE=gemini ですが GEMINI_API_KEY が未設定です。"
-                    "backend/environments/.env.secret にキーを書き、"
-                    "backend コンテナを再起動してください。"
-                ),
-            )
-        return _run_gemini_triage(db, expected, actual, code, api_key)
-
-    # mock 明示、またはキーなし → モック
-    if mode == "mock" or not api_key:
-        return _run_mock_triage(db, expected, actual, code)
-
-    # モード未指定かつキーあり → Gemini
     return _run_gemini_triage(db, expected, actual, code, api_key)

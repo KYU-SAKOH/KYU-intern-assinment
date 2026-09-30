@@ -1,22 +1,22 @@
 """
 再現手順の入力支援（飛躍・省略の指摘と次操作サジェスト）
 
-TRIAGE_MODE / GEMINI_API_KEY は triage.py と同じ規則。
+詳細ウィザードの step2 から呼ばれ、手順の過不足を Gemini でチェックする。
+件数の下限・上限は schemas.py の定数を正とする（ここでも同じ値を使う）。
+
+常に Gemini API を使う（mock なし）。GEMINI_API_KEY が必須。
+読む順番の目安: run_reproduction_assist → _run_gemini_assist
 """
 
 from __future__ import annotations
 
 import json
-import os
-import re
 from typing import Any
 
 from fastapi import HTTPException
 
-from triage import DEFAULT_MODEL
-
-MIN_STEPS = 3
-MAX_STEPS = 15
+from gemini_client import DEFAULT_MODEL, get_client, require_api_key
+from schemas import MAX_REPRODUCTION_STEPS, MIN_REPRODUCTION_STEPS
 
 
 def normalize_steps(steps: list[str]) -> list[str]:
@@ -27,142 +27,18 @@ def normalize_steps(steps: list[str]) -> list[str]:
 def validate_steps_basic(steps: list[str]) -> list[str]:
     """
     件数の基本ルール。違反があれば理由メッセージのリストを返す。
-    （各手順の意味・具体性は AI / ヒューリスティックのアドバイス側で見る）
+    （各手順の意味・具体性は Gemini 側で見る）
     """
     cleaned = normalize_steps(steps)
     errors: list[str] = []
-    if len(cleaned) < MIN_STEPS:
+    if len(cleaned) < MIN_REPRODUCTION_STEPS:
         errors.append(
-            f"再現手順は少なくとも {MIN_STEPS} 件必要です（現在 {len(cleaned)} 件）。"
+            f"再現手順は少なくとも {MIN_REPRODUCTION_STEPS} 件必要です"
+            f"（現在 {len(cleaned)} 件）。"
         )
-    if len(cleaned) > MAX_STEPS:
-        errors.append(f"再現手順は最大 {MAX_STEPS} 件までです。")
+    if len(cleaned) > MAX_REPRODUCTION_STEPS:
+        errors.append(f"再現手順は最大 {MAX_REPRODUCTION_STEPS} 件までです。")
     return errors
-
-
-def _heuristic_gaps(steps: list[str], expected: str, actual: str) -> list[str]:
-    """mock / 補完用の簡易ギャップ検出。"""
-    warnings: list[str] = []
-    joined = "\n".join(steps)
-    basic = validate_steps_basic(steps)
-    warnings.extend(basic)
-
-    if len(steps) >= 2:
-        first = steps[0]
-        last = steps[-1]
-        bootish = bool(re.search(r"起動|電源|オン|再起動", first))
-        errorish = bool(re.search(r"エラー|失敗|落ち|フリーズ|表示されない", last))
-        mid = steps[1:-1] if len(steps) > 2 else []
-        if bootish and errorish and len(mid) == 0:
-            warnings.append(
-                "「起動」から「エラー／失敗」までの中間操作が抜けている可能性があります。"
-            )
-        # 隣接ステップがほぼ同じ
-        for i in range(len(steps) - 1):
-            a, b = steps[i], steps[i + 1]
-            if a == b or (len(a) > 4 and a in b and abs(len(a) - len(b)) <= 2):
-                warnings.append(
-                    f"手順 {i + 1} と {i + 2} がほぼ同じです。時系列で区別できる操作に分けてください。"
-                )
-                break
-
-    # トリアージで触れているのに手順に無い語の簡易チェック（警告のみ）
-    context = f"{expected}\n{actual}"
-    for keyword, label in (
-        ("チケット", "チケット操作"),
-        ("スキャン", "スキャン操作"),
-        ("ログイン", "ログイン"),
-        ("ネットワーク", "ネットワーク確認"),
-        ("Wi-Fi", "Wi-Fi / 通信確認"),
-        ("再起動", "再起動"),
-    ):
-        if keyword in context and keyword not in joined:
-            warnings.append(
-                f"報告内容に「{keyword}」がありますが、再現手順に{label}がありません。"
-                "（改善案です。必須ではありません）"
-            )
-
-    # 最終ステップに結果・現場対応の気配が薄い場合の軽い提案
-    if steps:
-        last = steps[-1]
-        if not re.search(
-            r"結果|表示|エラー|失敗|出た|試|拭|再|確認|対応|改善", last
-        ):
-            warnings.append(
-                "最後の行に「結果」や「現場で試した対応」を書くと分かりやすくなります。"
-                "（改善案です。必須ではありません）"
-            )
-
-    # 重複除去（順序維持）
-    seen: set[str] = set()
-    unique: list[str] = []
-    for w in warnings:
-        if w not in seen:
-            seen.add(w)
-            unique.append(w)
-    return unique
-
-
-def _suggest_next(steps: list[str], expected: str, actual: str) -> list[str]:
-    """次に足しそうな操作候補（mock）。"""
-    suggestions: list[str] = []
-    context = f"{expected}\n{actual}"
-
-    if not any(re.search(r"起動|電源|オン", s) for s in steps):
-        suggestions.append("端末の電源を入れ、ホーム画面が表示されるまで待つ")
-    if not any(re.search(r"アプリ|起動|開く", s) for s in steps):
-        suggestions.append("対象アプリ（または管理画面）を開く")
-    if "チケット" in context and "チケット" not in "\n".join(steps):
-        suggestions.append("対象のチケットを選択する（または読み取る）")
-    if "スキャン" in context and "スキャン" not in "\n".join(steps):
-        suggestions.append("バーコード／QR をスキャンする")
-    if not any(re.search(r"結果|表示|エラー|失敗", s) for s in steps):
-        suggestions.append("画面に表示された結果（エラー文言含む）を確認する")
-    if not any(re.search(r"試|拭|再|対応|改善", s) for s in steps):
-        suggestions.append("現場で試した応急対応（清掃・再接続など）とその結果を書く")
-    if "再起動" in context and "再起動" not in "\n".join(steps):
-        suggestions.append("端末を再起動して同じ操作をやり直す")
-
-    # まだ少ないときは汎用候補
-    if len(suggestions) < 2:
-        suggestions.append("発生直前に行っていた操作を時系列で1つ追記する")
-        suggestions.append("正常時との違いが分かる操作結果を1ステップとして書く")
-
-    # 既に似た文がある候補は落とす
-    filtered: list[str] = []
-    for s in suggestions:
-        if any(s[:8] in step for step in steps):
-            continue
-        filtered.append(s)
-        if len(filtered) >= 4:
-            break
-    return filtered or suggestions[:3]
-
-
-def _hard_block_warnings(warnings: list[str]) -> bool:
-    """合格を止めるべきハードな指摘があるか。"""
-    return any(
-        ("中間操作" in w) or ("ほぼ同じ" in w) for w in warnings
-    )
-
-
-def _mock_assist(
-    steps: list[str],
-    expected: str,
-    actual: str,
-    error_code: str | None,
-) -> dict[str, Any]:
-    cleaned = normalize_steps(steps)
-    warnings = _heuristic_gaps(cleaned, expected, actual)
-    suggestions = _suggest_next(cleaned, expected, actual)
-    basic_ok = not validate_steps_basic(cleaned)
-    # 件数OKなら基本合格。ハード指摘（中間欠落・重複）だけ不合格
-    can_proceed = basic_ok and not _hard_block_warnings(warnings)
-    return {
-        "gap_warnings": warnings,
-        "suggested_next_steps": suggestions,
-        "can_proceed": can_proceed,
-    }
 
 
 def _run_gemini_assist(
@@ -172,7 +48,6 @@ def _run_gemini_assist(
     error_code: str | None,
     api_key: str,
 ) -> dict[str, Any]:
-    from google import genai
     from google.genai import types
 
     cleaned = normalize_steps(steps)
@@ -180,8 +55,8 @@ def _run_gemini_assist(
     if basic:
         # 基本ルール違反は AI に頼らず即不合格
         return {
-            "gap_warnings": basic + _heuristic_gaps(cleaned, expected, actual),
-            "suggested_next_steps": _suggest_next(cleaned, expected, actual),
+            "gap_warnings": basic,
+            "suggested_next_steps": [],
             "can_proceed": False,
         }
 
@@ -217,7 +92,7 @@ gap_warnings はアドバイスとして積極的に出してよいが、軽微�
         "error_code": error_code,
     }
 
-    client = genai.Client(api_key=api_key)
+    client = get_client(api_key)
     try:
         response = client.models.generate_content(
             model=DEFAULT_MODEL,
@@ -263,8 +138,7 @@ gap_warnings はアドバイスとして積極的に出してよいが、軽微�
 
     return {
         "gap_warnings": warnings,
-        "suggested_next_steps": suggestions
-        or _suggest_next(cleaned, expected, actual),
+        "suggested_next_steps": suggestions,
         "can_proceed": can_proceed,
     }
 
@@ -275,25 +149,10 @@ def run_reproduction_assist(
     actual_actions: str,
     error_code: str | None,
 ) -> dict[str, Any]:
-    mode = os.getenv("TRIAGE_MODE", "").strip().lower()
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-
+    """再現手順チェックを実行する（常に Gemini）。"""
+    api_key = require_api_key()
     expected = (expected_actions or "").strip()
     actual = (actual_actions or "").strip()
     code = (error_code or "").strip() or None
     cleaned = normalize_steps(steps)
-
-    if mode == "gemini":
-        if not api_key:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "TRIAGE_MODE=gemini ですが GEMINI_API_KEY が未設定です。"
-                ),
-            )
-        return _run_gemini_assist(cleaned, expected, actual, code, api_key)
-
-    if mode == "mock" or not api_key:
-        return _mock_assist(cleaned, expected, actual, code)
-
     return _run_gemini_assist(cleaned, expected, actual, code, api_key)

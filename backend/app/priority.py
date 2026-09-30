@@ -1,17 +1,17 @@
 """
 対応優先度スコアの算出（管理者一覧の並び替え用）
 
-TRIAGE_MODE / GEMINI_API_KEY は triage.py と同じ規則。
-- mock またはキーなし … ルールベースのみ
-- gemini … ルール基礎点と AI 点をブレンド
+ルール基礎点は常に計算する。GEMINI_API_KEY があれば AI 点とブレンドする。
+キーが無くても登録・更新は止めず、ルール点のみを返す（偽の AI 応答は返さない）。
+
+読む順番の目安: calc_priority_score / score_from_sample_fields → _rule_score
 """
 
 from __future__ import annotations
 
 import json
-import os
 
-from triage import DEFAULT_MODEL
+from gemini_client import DEFAULT_MODEL, get_api_key, get_client
 
 SEVERITY_POINTS = {
     "high": 40,
@@ -92,7 +92,6 @@ def _gemini_priority_score(
     status: str | None,
     api_key: str,
 ) -> int | None:
-    from google import genai
     from google.genai import types
 
     system_prompt = """あなたは Terravie（園館向けチケット・入場システム）の障害トリアージ担当です。
@@ -119,7 +118,7 @@ def _gemini_priority_score(
         "status": status,
     }
 
-    client = genai.Client(api_key=api_key)
+    client = get_client(api_key)
     try:
         response = client.models.generate_content(
             model=DEFAULT_MODEL,
@@ -159,7 +158,7 @@ def calc_priority_score(
 ) -> int:
     """
     対応優先度スコア（0〜100）を返す。
-    gemini 利用時はルール 40% + AI 60% でブレンド。
+    キーがあるときはルール 40% + AI 60% でブレンド。
     """
     rule = _rule_score(
         expected_actions=expected_actions,
@@ -171,16 +170,8 @@ def calc_priority_score(
         status=status,
     )
 
-    mode = os.getenv("TRIAGE_MODE", "").strip().lower()
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-
-    use_gemini = False
-    if mode == "gemini" and api_key:
-        use_gemini = True
-    elif mode not in ("mock", "gemini") and api_key:
-        use_gemini = True
-
-    if not use_gemini:
+    api_key = get_api_key()
+    if not api_key:
         return rule
 
     ai = _gemini_priority_score(

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import SampleChat from '@/components/SampleChat';
+import { API_BASE_URL } from '@/lib/api';
 import {
   STATUS_OPTIONS,
   statusBadgeClass,
@@ -15,6 +16,9 @@ import type { components } from '@/types/api';
 
 /**
  * 管理者画面（ /admin ）
+ *
+ * 園館スタッフからの問い合わせを優先度順に見て、
+ * 対応状況の更新とチャット対応を行う画面。
  *
  * できること:
  *  - キーワード / 種別 / 対応状況 / 期間で検索
@@ -34,8 +38,6 @@ type Sample = components['schemas']['SampleResponse'] & {
   reproduction_rate?: string | null;
   severity?: string | null;
 };
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 function priorityBand(score: number | undefined): { label: string; className: string } {
   const s = typeof score === 'number' ? score : 0;

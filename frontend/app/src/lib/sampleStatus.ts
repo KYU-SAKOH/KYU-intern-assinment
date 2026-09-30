@@ -57,3 +57,11 @@ export function toSampleStatus(status: string | null | undefined): SampleStatus 
   }
   return 'Pending';
 }
+
+/** スタッフが内容編集・削除できるか（完全対応済みは閲覧のみ） */
+export function canEditRegisteredStatus(
+  status: string | null | undefined,
+): boolean {
+  const s = toSampleStatus(status);
+  return s === 'Pending' || s === 'Temporarily Resolved';
+}

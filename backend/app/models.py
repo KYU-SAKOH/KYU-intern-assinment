@@ -1,8 +1,15 @@
 """
 SQLAlchemy モデル（DB のテーブル定義）
 
-「Python のクラス」⇔「MySQL のテーブル samples」を対応づける。
+「Python のクラス」⇔「MySQL のテーブル」を対応づける。
 実際のテーブル作成・変更は Alembic のマイグレーションで行う。
+
+このファイルのクラス:
+  SampleModel        … 問い合わせ本体（samples）
+  SampleMessageModel … 対応履歴チャット（sample_messages）
+
+列のグループ（SampleModel）:
+  基本情報 → トリアージ入力 → 詳細ウィザード → ステータス / 優先度
 """
 
 from datetime import datetime
@@ -72,6 +79,14 @@ class SampleModel(Base):
     priority_score: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, index=True
     )
+
+    # スタッフ向け「管理者からの更新」未読通知（一覧ハイライト用）
+    staff_notify_unread: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
+    )
+    staff_notify_kind: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    staff_notify_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    staff_notify_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # チャット形式の対応履歴（園館スタッフ ↔ 管理者）
     messages: Mapped[list["SampleMessageModel"]] = relationship(

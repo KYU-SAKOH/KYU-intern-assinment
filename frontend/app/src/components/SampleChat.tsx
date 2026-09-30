@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { API_BASE_URL, readApiError } from '@/lib/api';
+
 /**
  * 問い合わせごとのチャット形式の対応履歴
  *
  * mode=staff … 園館スタッフ（投稿時に登録メールが必要）
  * mode=admin … 管理者（メール不要）
+ *
+ * 親画面（トップ／管理者）から sampleId と mode を受け取り、
+ * GET/POST /samples/{id}/messages を呼ぶ。
  */
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 type AuthorRole = 'staff' | 'admin';
 
@@ -28,27 +31,24 @@ type SampleChatProps = {
   ownerEmail?: string;
   /** true のとき履歴閲覧のみ（送信フォームを出さない） */
   readOnly?: boolean;
+  /** staff 送信成功時（未読解除フロー用） */
+  onStaffMessageSent?: () => void;
+  /** 未読のコメント対応で返信を促す強調 */
+  highlightReply?: boolean;
 };
-
-async function readApiError(res: Response, fallback: string): Promise<string> {
-  try {
-    const data = await res.json();
-    if (typeof data?.detail === 'string') return data.detail;
-  } catch {
-    /* ignore */
-  }
-  return fallback;
-}
 
 export default function SampleChat({
   sampleId,
   mode,
   ownerEmail = '',
   readOnly = false,
+  onStaffMessageSent,
+  highlightReply = false,
 }: SampleChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [body, setBody] = useState('');
-  const [loading, setLoading] = useState(false);
+  // 初回マウント直後はまだ未取得なので true（空メッセージのチラつき防止）
+  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
 
@@ -101,6 +101,9 @@ export default function SampleChat({
       }
       setBody('');
       await loadMessages();
+      if (mode === 'staff') {
+        onStaffMessageSent?.();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '送信に失敗しました。');
     } finally {
@@ -109,12 +112,23 @@ export default function SampleChat({
   };
 
   return (
-    <div className="rounded border border-gray-200 bg-white">
+    <div
+      className={
+        highlightReply
+          ? 'rounded border-2 border-amber-500 bg-amber-50/40 ring-2 ring-amber-200'
+          : 'rounded border border-gray-200 bg-white'
+      }
+    >
       <div className="border-b border-gray-200 px-3 py-2">
         <h3 className="text-sm font-semibold text-gray-900">対応履歴（チャット）</h3>
         <p className="text-xs text-gray-500">
           園館スタッフと管理者のやり取りを時系列で記録します。
         </p>
+        {highlightReply && (
+          <p className="mt-2 text-sm font-semibold text-amber-900">
+            ここに返信してください（未読解除の次のステップです）
+          </p>
+        )}
       </div>
 
       <div className="flex max-h-72 flex-col gap-2 overflow-y-auto px-3 py-3">

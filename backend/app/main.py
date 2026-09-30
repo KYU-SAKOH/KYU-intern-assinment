@@ -6,6 +6,18 @@
 
 役割のイメージ:
   ブラウザ → FastAPI（このファイル） → SQLAlchemy → MySQL
+
+主なエンドポイントの見取り図:
+  GET/POST /samples … 一覧・汎用作成
+  POST /samples/draft|complete … 一時保存・本登録
+  PATCH /samples/{id}/finalize … 下書き確定
+  POST /triage … AI トリアージ（Gemini 必須）
+  POST /reproduction-assist … 再現手順チェック（Gemini 必須）
+  GET/POST /samples/{id}/messages … 対応履歴チャット
+  PATCH /samples/{id}/notifications/read … スタッフ未読通知の解除
+
+AI の実処理は triage.py / reproduction_assist.py / priority.py に委譲する。
+スタッフ通知の送信口は notify.py（現状はデモ＝ログ）。
 """
 
 import os
@@ -22,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import SampleMessageModel, SampleModel
+from notify import notify_staff_update
 from priority import score_from_sample_fields
 from reproduction_assist import run_reproduction_assist
 from schemas import (
@@ -43,6 +56,7 @@ from schemas import (
     deserialize_reproduction_steps,
     serialize_reproduction_steps,
 )
+from text_utils import like_pattern
 from triage import run_triage
 
 # フロントの URL（CORS で「このオリジンからはアクセスOK」と許可する）
@@ -69,6 +83,39 @@ app.add_middleware(
 
 # 画像配信は /media（POST /uploads/screenshot とパスを分ける）
 app.mount("/media", StaticFiles(directory=str(UPLOAD_DIR)), name="media")
+
+_STATUS_LABEL_JA = {
+    "Pending": "未対応",
+    "Temporarily Resolved": "一時対応済み",
+    "Fully Resolved": "完全対応済み",
+}
+
+
+def _status_label_ja(status: str) -> str:
+    return _STATUS_LABEL_JA.get(status, status)
+
+
+def _mark_staff_notification(
+    db_sample: SampleModel, *, kind: str, summary: str
+) -> None:
+    """
+    スタッフ向け未読フラグを立て、通知送信口（notify.py）を呼ぶ。
+    下書きやプレースホルダメールには送らない。
+    """
+    email = (db_sample.email or "").strip()
+    if db_sample.is_draft or not email or email.endswith("@incomplete.local"):
+        return
+
+    db_sample.staff_notify_unread = True
+    db_sample.staff_notify_kind = kind
+    db_sample.staff_notify_at = datetime.utcnow()
+    db_sample.staff_notify_summary = summary[:500]
+    notify_staff_update(
+        to_email=email,
+        sample_id=db_sample.id,
+        kind=kind,
+        summary=summary,
+    )
 
 
 def _apply_detail_meta(
@@ -116,16 +163,6 @@ def health_check():
 
 
 # ---------- Samples CRUD（問い合わせデータの作成・読取・更新・削除） ----------
-
-
-def _like_pattern(keyword: str) -> str:
-    """
-    SQL の LIKE 用パターンを作る。
-    ユーザーが入力した % や _ を「特殊文字」ではなく普通の文字として扱う。
-    前後に % を付けて「部分一致」（含む検索）にする。
-    """
-    escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
 
 
 def _normalize_email(email: str) -> str:
@@ -208,7 +245,7 @@ def get_samples(
         # 半角・全角スペースで分割し、空文字は捨てる
         keywords = [k for k in re.split(r"[\s\u3000]+", q.strip()) if k]
         for keyword in keywords:
-            pattern = _like_pattern(keyword)
+            pattern = like_pattern(keyword)
             query = query.filter(
                 or_(
                     SampleModel.name.like(pattern, escape="\\"),
@@ -241,11 +278,20 @@ def get_samples(
 
     # response_model=SampleResponse のため、email はレスポンスに含まれない
     if (sort or "").strip().lower() == "priority":
+        # 管理者一覧: 優先度が主。同点なら未読を上に
         return query.order_by(
             SampleModel.priority_score.desc(),
+            SampleModel.staff_notify_unread.desc(),
             SampleModel.date.desc(),
         ).all()
-    return query.order_by(SampleModel.date.desc()).all()
+    # スタッフ一覧など: 未読通知を最優先で上部へ
+    return query.order_by(
+        SampleModel.staff_notify_unread.desc(),
+        SampleModel.date.desc(),
+    ).all()
+
+
+# ---------- AI トリアージ / 再現支援 / スクショ ----------
 
 
 @app.post("/triage", response_model=TriageResponse)
@@ -321,6 +367,9 @@ async def upload_screenshot(file: UploadFile = File(...)):
     dest.write_bytes(data)
     path = f"/media/{filename}"
     return UploadScreenshotResponse(path=path, url=path)
+
+
+# ---------- 作成（汎用 / 下書き / 本登録 / 下書き確定） ----------
 
 
 @app.post("/samples", response_model=SampleResponse, status_code=201)
@@ -443,6 +492,9 @@ def finalize_draft_sample(
     return db_sample
 
 
+# ---------- 更新・削除（スタッフ本人 / 管理者） ----------
+
+
 @app.put("/samples/{sample_id}", response_model=SampleResponse)
 def update_sample(
     sample_id: int, sample: SampleUpdate, db: Session = Depends(get_db)
@@ -515,11 +567,24 @@ def admin_update_sample(
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
 
+    previous_status = db_sample.status
     db_sample.status = sample.status
     # 空白だけのコメントは「未記入」と同じ扱いにする
     comment = (sample.admin_comment or "").strip()
     db_sample.admin_comment = comment if comment else None
     _refresh_priority_score(db_sample)
+
+    # 管理者が保存するたびスタッフへ通知（デモで気づきやすいよう、同ステータス再保存も含む）
+    label = _status_label_ja(sample.status)
+    if previous_status != sample.status:
+        summary = f"対応状況が「{label}」に更新されました"
+    else:
+        summary = f"管理者が対応状況「{label}」を確認・保存しました"
+    _mark_staff_notification(
+        db_sample,
+        kind="status",
+        summary=summary,
+    )
 
     db.commit()
     db.refresh(db_sample)
@@ -556,6 +621,9 @@ def delete_sample(
     _verify_owner_email(sample, email)
     db.delete(sample)
     db.commit()
+
+
+# ---------- 対応履歴（チャット） ----------
 
 
 @app.get("/samples/{sample_id}/messages", response_model=list[SampleMessageResponse])
@@ -620,6 +688,44 @@ def create_sample_message(
         created_at=datetime.utcnow(),
     )
     db.add(msg)
+
+    if body.author_role == "admin":
+        # 完全対応済みへの対応内容投稿は status 未読の上書き（comment）にしない。
+        # スタッフは返信できないため、直前の status 通知のまま閲覧＋戻るで消せるようにする。
+        if sample.status != "Fully Resolved":
+            _mark_staff_notification(
+                sample,
+                kind="comment",
+                summary="管理者から新しいコメントがあります",
+            )
+
     db.commit()
     db.refresh(msg)
     return msg
+
+
+@app.patch(
+    "/samples/{sample_id}/notifications/read",
+    response_model=SampleResponse,
+)
+def mark_staff_notification_read(
+    sample_id: int,
+    email: str = Query(..., description="登録時と同じメールアドレス"),
+    db: Session = Depends(get_db),
+):
+    """
+    スタッフが本人メールで未読通知を消す。
+    詳細から一覧に戻るときなど、フロントから明示的に呼ぶ。
+    """
+    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    _verify_owner_email(sample, email)
+
+    sample.staff_notify_unread = False
+    sample.staff_notify_kind = None
+    sample.staff_notify_at = None
+    sample.staff_notify_summary = None
+    db.commit()
+    db.refresh(sample)
+    return sample

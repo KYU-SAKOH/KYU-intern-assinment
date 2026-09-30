@@ -8,6 +8,12 @@ schemas.py … HTTP で受け取る / 返す形（Pydantic）
   - リクエストでは email が必須でも、レスポンスでは email を返したくない
   - PUT と PATCH で「全部必須」か「一部だけ」かを変えたい
   - 管理者更新は本人メール照合なしで status / admin_comment だけ触る
+
+Create 系が複数ある理由（画面フローに対応）:
+  SampleCreate … 汎用 POST /samples
+  SampleDraftCreate … 一時保存
+  SampleTriageCompleteCreate … トリアージ後の本登録
+  SampleFinalize … 下書き → 本登録
 """
 
 import json
@@ -231,6 +237,10 @@ class SampleResponse(BaseModel):
     screenshot_path: str | None = None
     device_info: str | None = None
     priority_score: int = 0
+    staff_notify_unread: bool = False
+    staff_notify_kind: str | None = None
+    staff_notify_at: datetime | None = None
+    staff_notify_summary: str | None = None
 
     model_config = {"from_attributes": True}
 
