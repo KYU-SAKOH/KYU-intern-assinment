@@ -69,7 +69,30 @@ type RegisteredSample = {
   error_code?: string | null;
   ai_initial_response?: string | null;
   status?: SampleStatus;
+  reproduction_steps?: string[];
+  reproduction_rate?: string | null;
+  severity?: string | null;
+  screenshot_path?: string | null;
+  device_info?: string | null;
 };
+
+const REPRODUCTION_RATE_LABELS: Record<string, string> = {
+  always: 'いつも再現する',
+  often: 'よく再現する',
+  sometimes: 'ときどき再現する',
+  rare: 'まれに再現する',
+};
+
+const SEVERITY_LABELS: Record<string, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+};
+
+function stepsLookApproved(steps: string[]): boolean {
+  const cleaned = steps.map((s) => s.trim()).filter(Boolean);
+  return cleaned.length >= 3 && cleaned.every((s) => s.length >= 8);
+}
 
 function canEditRegisteredStatus(status: string | null | undefined): boolean {
   const s = toSampleStatus(status);
@@ -143,6 +166,18 @@ export default function Home() {
     error: string;
     aiResponse: string | null;
   } | null>(null);
+  const [detailStep, setDetailStep] = useState<1 | 2 | 3>(1);
+  const [reproductionSteps, setReproductionSteps] = useState<string[]>(['', '', '']);
+  const [assistLoading, setAssistLoading] = useState(false);
+  const [assistError, setAssistError] = useState('');
+  const [gapWarnings, setGapWarnings] = useState<string[]>([]);
+  const [suggestedNextSteps, setSuggestedNextSteps] = useState<string[]>([]);
+  const [stepsAiApproved, setStepsAiApproved] = useState(false);
+  const [reproductionRate, setReproductionRate] = useState('');
+  const [severity, setSeverity] = useState('');
+  const [screenshotPath, setScreenshotPath] = useState('');
+  const [deviceInfo, setDeviceInfo] = useState('');
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
 
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
@@ -191,6 +226,21 @@ export default function Home() {
     loadRegistered();
   }, [loadDrafts, loadRegistered]);
 
+  const resetDetailWizardFields = () => {
+    setDetailStep(1);
+    setReproductionSteps(['', '', '']);
+    setAssistLoading(false);
+    setAssistError('');
+    setGapWarnings([]);
+    setSuggestedNextSteps([]);
+    setStepsAiApproved(false);
+    setReproductionRate('');
+    setSeverity('');
+    setScreenshotPath('');
+    setDeviceInfo('');
+    setUploadingScreenshot(false);
+  };
+
   const resetTriageSession = () => {
     setExpectedActions('');
     setActualActions('');
@@ -204,9 +254,167 @@ export default function Home() {
     setDetailContext(null);
     setSelectedDraftId(null);
     setDetailMode('newComplete');
+    resetDetailWizardFields();
     setActionError('');
     setActionSuccess('');
     setView('home');
+  };
+
+  const invalidateStepsApproval = () => {
+    setStepsAiApproved(false);
+    setGapWarnings([]);
+    setSuggestedNextSteps([]);
+    setAssistError('');
+  };
+
+  const updateReproductionStep = (index: number, value: string) => {
+    setReproductionSteps((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+    invalidateStepsApproval();
+  };
+
+  const addReproductionStep = () => {
+    setReproductionSteps((prev) => {
+      if (prev.length >= 15) return prev;
+      return [...prev, ''];
+    });
+    invalidateStepsApproval();
+  };
+
+  const removeReproductionStep = (index: number) => {
+    setReproductionSteps((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
+    invalidateStepsApproval();
+  };
+
+  const cleanedReproductionSteps = () =>
+    reproductionSteps.map((s) => s.trim()).filter(Boolean);
+
+  const goDetailNext = async () => {
+    setActionError('');
+    if (detailStep === 1) {
+      if (view === 'editRegistered') {
+        if (
+          !name.trim() ||
+          !place.trim() ||
+          !troubleType ||
+          !email.trim() ||
+          !editExpected.trim() ||
+          !editActual.trim()
+        ) {
+          setActionError('報告者名・場所・種別・メール・期待結果・実際の結果は必須です。');
+          return;
+        }
+      } else if (!place.trim() || !troubleType || !email.trim()) {
+        setActionError('場所・種別・メールは必須です。');
+        return;
+      }
+      if (!isValidEmail(email)) {
+        setActionError('メールアドレスの形式が正しくありません。');
+        return;
+      }
+      setDetailStep(2);
+      return;
+    }
+    if (detailStep === 2) {
+      if (!stepsAiApproved) {
+        setActionError(
+          'AIチェックで合格するまで次へ進めません。「AIにチェックしてもらう」を実行してください。',
+        );
+        return;
+      }
+      setDetailStep(3);
+    }
+  };
+
+  const goDetailBack = () => {
+    setActionError('');
+    if (detailStep === 2) setDetailStep(1);
+    else if (detailStep === 3) setDetailStep(2);
+  };
+
+  const runReproductionAssist = async () => {
+    setAssistError('');
+    setActionError('');
+    const steps = cleanedReproductionSteps();
+    if (steps.length < 3) {
+      setAssistError('再現手順は少なくとも3件入力してください。');
+      setStepsAiApproved(false);
+      return;
+    }
+    if (steps.some((s) => s.length < 8)) {
+      setAssistError('各手順は8文字以上にしてください。');
+      setStepsAiApproved(false);
+      return;
+    }
+    const expected =
+      view === 'editRegistered' ? editExpected.trim() : (detailContext?.expected ?? '');
+    const actual =
+      view === 'editRegistered' ? editActual.trim() : (detailContext?.actual ?? '');
+    const errCode =
+      view === 'editRegistered'
+        ? editErrorCode.trim() || null
+        : detailContext?.error || null;
+    setAssistLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/reproduction-assist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reproduction_steps: steps,
+          expected_actions: expected,
+          actual_actions: actual,
+          error_code: errCode,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `AIチェックに失敗しました (${res.status})`));
+      }
+      const data = (await res.json()) as {
+        gap_warnings: string[];
+        suggested_next_steps: string[];
+        can_proceed: boolean;
+      };
+      setGapWarnings(data.gap_warnings ?? []);
+      setSuggestedNextSteps(data.suggested_next_steps ?? []);
+      setStepsAiApproved(Boolean(data.can_proceed));
+      if (!data.can_proceed) {
+        setAssistError('指摘を確認し、手順を追加・修正してから再度チェックしてください。');
+      }
+    } catch (err) {
+      setStepsAiApproved(false);
+      setAssistError(err instanceof Error ? err.message : 'AIチェックに失敗しました。');
+    } finally {
+      setAssistLoading(false);
+    }
+  };
+
+  const handleScreenshotUpload = async (file: File | null) => {
+    if (!file) return;
+    setUploadingScreenshot(true);
+    setActionError('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API_BASE_URL}/uploads/screenshot`, {
+        method: 'POST',
+        body: form,
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `アップロードに失敗しました (${res.status})`));
+      }
+      const data = (await res.json()) as { path: string };
+      setScreenshotPath(data.path);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'アップロードに失敗しました。');
+    } finally {
+      setUploadingScreenshot(false);
+    }
   };
 
   const runTriage = async () => {
@@ -256,6 +464,7 @@ export default function Home() {
     setEditExpected('');
     setEditActual('');
     setEditErrorCode('');
+    resetDetailWizardFields();
     setActionError('');
     setActionSuccess('');
     setView('home');
@@ -290,6 +499,7 @@ export default function Home() {
     setPlace('');
     setTroubleType('');
     setEmail('');
+    resetDetailWizardFields();
     setActionError('');
     setView('detailForm');
   };
@@ -307,6 +517,7 @@ export default function Home() {
     setPlace('');
     setTroubleType('');
     setEmail('');
+    resetDetailWizardFields();
     setActionError('');
     setView('detailForm');
   };
@@ -360,6 +571,25 @@ export default function Home() {
       setActionError('入力内容がありません。');
       return;
     }
+    if (!stepsAiApproved) {
+      setActionError('再現手順の AI チェックが完了していません。②に戻って確認してください。');
+      setDetailStep(2);
+      return;
+    }
+    const steps = cleanedReproductionSteps();
+    if (steps.length < 3) {
+      setActionError('再現手順は少なくとも3件必要です。');
+      setDetailStep(2);
+      return;
+    }
+
+    const detailPayload = {
+      reproduction_steps: steps,
+      reproduction_rate: reproductionRate || null,
+      severity: severity || null,
+      screenshot_path: screenshotPath || null,
+      device_info: deviceInfo.trim() || null,
+    };
 
     setSubmitting(true);
     try {
@@ -372,6 +602,7 @@ export default function Home() {
             place: place.trim(),
             trouble_type: troubleType,
             email: email.trim(),
+            ...detailPayload,
           }),
         });
         if (!res.ok) {
@@ -391,6 +622,7 @@ export default function Home() {
             actual_actions: detailContext.actual,
             error_code: detailContext.error || null,
             ai_initial_response: detailContext.aiResponse,
+            ...detailPayload,
           }),
         });
         if (!res.ok) {
@@ -419,6 +651,22 @@ export default function Home() {
       sample.trouble_type === 'stuff' ? 'stuff' : 'customer',
     );
     setEmail('');
+    const existingSteps =
+      sample.reproduction_steps && sample.reproduction_steps.length > 0
+        ? [...sample.reproduction_steps]
+        : ['', '', ''];
+    setDetailStep(1);
+    setReproductionSteps(existingSteps);
+    setAssistLoading(false);
+    setAssistError('');
+    setGapWarnings([]);
+    setSuggestedNextSteps([]);
+    setStepsAiApproved(stepsLookApproved(existingSteps));
+    setReproductionRate(sample.reproduction_rate ?? '');
+    setSeverity(sample.severity ?? '');
+    setScreenshotPath(sample.screenshot_path ?? '');
+    setDeviceInfo(sample.device_info ?? '');
+    setUploadingScreenshot(false);
     setActionError('');
     setActionSuccess('');
     setView('editRegistered');
@@ -446,6 +694,17 @@ export default function Home() {
       setActionError('メールアドレスの形式が正しくありません。');
       return;
     }
+    if (!stepsAiApproved) {
+      setActionError('再現手順の AI チェックが完了していません。②に戻って確認してください。');
+      setDetailStep(2);
+      return;
+    }
+    const steps = cleanedReproductionSteps();
+    if (steps.length < 3) {
+      setActionError('再現手順は少なくとも3件必要です。');
+      setDetailStep(2);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -463,6 +722,11 @@ export default function Home() {
           actual_actions: editActual.trim(),
           error_code: editErrorCode.trim() || null,
           ai_initial_response: selectedRegistered.ai_initial_response ?? null,
+          reproduction_steps: steps,
+          reproduction_rate: reproductionRate || null,
+          severity: severity || null,
+          screenshot_path: screenshotPath || null,
+          device_info: deviceInfo.trim() || null,
         }),
       });
       if (!res.ok) {
@@ -782,91 +1046,358 @@ export default function Home() {
           </p>
 
           {canEditRegisteredStatus(selectedRegistered.status) ? (
-            <form onSubmit={handleRegisteredSave} className="flex flex-col gap-2 text-sm">
-              <label className="flex flex-col gap-1">
-                <span className="font-semibold">実施した操作と期待結果 *</span>
-                <textarea
-                  value={editExpected}
-                  onChange={(e) => setEditExpected(e.target.value)}
-                  rows={3}
-                  className="rounded border border-gray-300 px-3 py-2"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="font-semibold">実施した操作と実際の結果 *</span>
-                <textarea
-                  value={editActual}
-                  onChange={(e) => setEditActual(e.target.value)}
-                  rows={3}
-                  className="rounded border border-gray-300 px-3 py-2"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="font-semibold">エラーコード（任意）</span>
-                <input
-                  type="text"
-                  value={editErrorCode}
-                  onChange={(e) => setEditErrorCode(e.target.value)}
-                  className="rounded border border-gray-300 px-3 py-2"
-                />
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="報告者名 *"
-                className="rounded border border-gray-300 px-3 py-2"
-              />
-              <input
-                type="text"
-                value={place}
-                onChange={(e) => setPlace(e.target.value)}
-                placeholder="発生場所 *"
-                className="rounded border border-gray-300 px-3 py-2"
-              />
-              <select
-                value={troubleType}
-                onChange={(e) => setTroubleType(e.target.value as TroubleType | '')}
-                className="rounded border border-gray-300 px-3 py-2"
-              >
-                <option value="">種別を選択 *</option>
-                <option value="customer">customer</option>
-                <option value="stuff">stuff</option>
-              </select>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="登録時メール（保存・削除の確認用）*"
-                className="rounded border border-gray-300 px-3 py-2"
-              />
-              {actionError && <p className="text-sm text-red-700">{actionError}</p>}
-              {actionSuccess && <p className="text-sm text-emerald-700">{actionSuccess}</p>}
-              <div className="mt-2 flex flex-wrap gap-3">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
-                >
-                  {submitting ? '保存中…' : '保存'}
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={handleRegisteredDelete}
-                  className="rounded border border-red-600 bg-white px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                >
-                  削除
-                </button>
-                <button
-                  type="button"
-                  onClick={goHome}
-                  className="text-sm text-gray-600 underline"
-                >
-                  キャンセル
-                </button>
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {([1, 2, 3] as const).map((step) => (
+                  <button
+                    key={step}
+                    type="button"
+                    onClick={() => {
+                      if (step < detailStep) {
+                        setDetailStep(step);
+                        setActionError('');
+                        return;
+                      }
+                      if (step === detailStep) return;
+                      if (step === 2 && detailStep === 1) {
+                        void goDetailNext();
+                        return;
+                      }
+                      if (
+                        step === 3 &&
+                        stepsAiApproved &&
+                        (detailStep === 1 || detailStep === 2)
+                      ) {
+                        if (
+                          detailStep === 1 &&
+                          (!name.trim() ||
+                            !place.trim() ||
+                            !troubleType ||
+                            !email.trim() ||
+                            !editExpected.trim() ||
+                            !editActual.trim() ||
+                            !isValidEmail(email))
+                        ) {
+                          setActionError('①の必須項目を先に入力してください。');
+                          return;
+                        }
+                        setDetailStep(3);
+                        setActionError('');
+                      }
+                    }}
+                    className={`rounded px-3 py-1.5 font-medium ${
+                      detailStep === step
+                        ? 'bg-gray-900 text-white'
+                        : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {step === 1
+                      ? '① 基本情報'
+                      : step === 2
+                        ? '② 再現手順'
+                        : '③ 追加情報'}
+                  </button>
+                ))}
               </div>
-            </form>
+
+              <form
+                onSubmit={(e) => {
+                  if (detailStep !== 3) {
+                    e.preventDefault();
+                    void goDetailNext();
+                    return;
+                  }
+                  void handleRegisteredSave(e);
+                }}
+                className="flex flex-col gap-3 text-sm"
+              >
+                <h3 className="font-semibold">
+                  内容を編集
+                  <span className="ml-2 font-normal text-gray-500">
+                    （{detailStep} / 3）
+                  </span>
+                </h3>
+
+                {detailStep === 1 && (
+                  <>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">実施した操作と期待結果 *</span>
+                      <textarea
+                        value={editExpected}
+                        onChange={(e) => {
+                          setEditExpected(e.target.value);
+                          invalidateStepsApproval();
+                        }}
+                        rows={3}
+                        className="rounded border border-gray-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">実施した操作と実際の結果 *</span>
+                      <textarea
+                        value={editActual}
+                        onChange={(e) => {
+                          setEditActual(e.target.value);
+                          invalidateStepsApproval();
+                        }}
+                        rows={3}
+                        className="rounded border border-gray-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">エラーコード（任意）</span>
+                      <input
+                        type="text"
+                        value={editErrorCode}
+                        onChange={(e) => {
+                          setEditErrorCode(e.target.value);
+                          invalidateStepsApproval();
+                        }}
+                        className="rounded border border-gray-300 px-3 py-2"
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="報告者名 *"
+                      className="rounded border border-gray-300 px-3 py-2"
+                    />
+                    <input
+                      type="text"
+                      value={place}
+                      onChange={(e) => setPlace(e.target.value)}
+                      placeholder="発生場所 *"
+                      className="rounded border border-gray-300 px-3 py-2"
+                    />
+                    <select
+                      value={troubleType}
+                      onChange={(e) => setTroubleType(e.target.value as TroubleType | '')}
+                      className="rounded border border-gray-300 px-3 py-2"
+                    >
+                      <option value="">種別を選択 *</option>
+                      <option value="customer">customer</option>
+                      <option value="stuff">stuff</option>
+                    </select>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="登録時メール（保存・削除の確認用）*"
+                      className="rounded border border-gray-300 px-3 py-2"
+                    />
+                  </>
+                )}
+
+                {detailStep === 2 && (
+                  <>
+                    <p className="text-xs text-gray-600">
+                      操作を時系列で書いてください（最低3件・最大15件・各8文字以上）。
+                      AIチェックに合格すると次へ進めます。
+                    </p>
+                    <ul className="space-y-2">
+                      {reproductionSteps.map((stepText, index) => (
+                        <li key={index} className="flex gap-2">
+                          <span className="mt-2 w-6 shrink-0 text-xs text-gray-500">
+                            {index + 1}.
+                          </span>
+                          <input
+                            type="text"
+                            value={stepText}
+                            onChange={(e) => updateReproductionStep(index, e.target.value)}
+                            placeholder={`操作 ${index + 1}`}
+                            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeReproductionStep(index)}
+                            disabled={reproductionSteps.length <= 1}
+                            className="shrink-0 text-xs text-red-700 underline disabled:opacity-40"
+                          >
+                            削除
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={addReproductionStep}
+                        disabled={reproductionSteps.length >= 15}
+                        className="rounded border border-gray-400 bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        手順を追加
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void runReproductionAssist()}
+                        disabled={assistLoading}
+                        className="rounded bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                      >
+                        {assistLoading ? 'AIチェック中…' : 'AIにチェックしてもらう'}
+                      </button>
+                    </div>
+                    {assistError && (
+                      <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        {assistError}
+                      </p>
+                    )}
+                    {gapWarnings.length > 0 && (
+                      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="font-semibold text-amber-950">指摘</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-950">
+                          {gapWarnings.map((w) => (
+                            <li key={w}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {suggestedNextSteps.length > 0 && (
+                      <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                        <p className="font-semibold text-gray-800">
+                          次の操作候補（クリックで追加）
+                        </p>
+                        <ul className="mt-2 space-y-1">
+                          {suggestedNextSteps.map((s) => (
+                            <li key={s}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReproductionSteps((prev) =>
+                                    prev.length >= 15 ? prev : [...prev, s],
+                                  );
+                                  invalidateStepsApproval();
+                                }}
+                                className="text-left text-gray-800 underline hover:text-gray-950"
+                              >
+                                {s}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {stepsAiApproved && (
+                      <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                        AIチェック合格。次へ進めます。
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {detailStep === 3 && (
+                  <>
+                    <p className="text-xs text-gray-600">わかれば入力（すべて任意）</p>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">再現率</span>
+                      <select
+                        value={reproductionRate}
+                        onChange={(e) => setReproductionRate(e.target.value)}
+                        className="rounded border border-gray-300 px-3 py-2"
+                      >
+                        <option value="">未選択</option>
+                        <option value="always">いつも再現する</option>
+                        <option value="often">よく再現する</option>
+                        <option value="sometimes">ときどき再現する</option>
+                        <option value="rare">まれに再現する</option>
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">重要度</span>
+                      <select
+                        value={severity}
+                        onChange={(e) => setSeverity(e.target.value)}
+                        className="rounded border border-gray-300 px-3 py-2"
+                      >
+                        <option value="">未選択</option>
+                        <option value="low">低</option>
+                        <option value="medium">中</option>
+                        <option value="high">高</option>
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">スクリーンショット</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          void handleScreenshotUpload(file);
+                        }}
+                        className="rounded border border-gray-300 px-3 py-2"
+                      />
+                      {uploadingScreenshot && (
+                        <span className="text-xs text-gray-500">アップロード中…</span>
+                      )}
+                      {screenshotPath && (
+                        <span className="text-xs text-emerald-700">
+                          添付済み: {screenshotPath}
+                        </span>
+                      )}
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="font-semibold">端末情報</span>
+                      <textarea
+                        value={deviceInfo}
+                        onChange={(e) => setDeviceInfo(e.target.value)}
+                        rows={3}
+                        placeholder="機種名・OS・アプリバージョンなど"
+                        className="rounded border border-gray-300 px-3 py-2"
+                      />
+                    </label>
+                  </>
+                )}
+
+                {actionError && <p className="text-sm text-red-700">{actionError}</p>}
+                {actionSuccess && <p className="text-sm text-emerald-700">{actionSuccess}</p>}
+
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {detailStep > 1 && (
+                    <button
+                      type="button"
+                      onClick={goDetailBack}
+                      className="rounded border border-gray-400 bg-white px-4 py-2 font-semibold hover:bg-gray-50"
+                    >
+                      戻る
+                    </button>
+                  )}
+                  {detailStep < 3 ? (
+                    <button
+                      type="submit"
+                      disabled={detailStep === 2 && !stepsAiApproved}
+                      className="rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                    >
+                      次へ
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                    >
+                      {submitting ? '保存中…' : '保存'}
+                    </button>
+                  )}
+                  {detailStep === 1 && (
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={handleRegisteredDelete}
+                      className="rounded border border-red-600 bg-white px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    >
+                      削除
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={goHome}
+                    className="text-sm text-gray-600 underline"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </form>
+            </>
           ) : (
             <div className="space-y-3 rounded border border-gray-200 bg-gray-50 px-4 py-4 text-sm">
               <p className="text-gray-600">
@@ -889,6 +1420,50 @@ export default function Home() {
                 {selectedRegistered.name} / {selectedRegistered.place} /{' '}
                 {selectedRegistered.trouble_type}
               </p>
+              {selectedRegistered.reproduction_steps &&
+                selectedRegistered.reproduction_steps.length > 0 && (
+                  <div>
+                    <p className="font-semibold text-gray-700">再現手順</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-5 text-gray-800">
+                      {selectedRegistered.reproduction_steps.map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              {selectedRegistered.reproduction_rate && (
+                <p>
+                  <span className="font-semibold text-gray-700">再現率: </span>
+                  {REPRODUCTION_RATE_LABELS[selectedRegistered.reproduction_rate] ??
+                    selectedRegistered.reproduction_rate}
+                </p>
+              )}
+              {selectedRegistered.severity && (
+                <p>
+                  <span className="font-semibold text-gray-700">重要度: </span>
+                  {SEVERITY_LABELS[selectedRegistered.severity] ??
+                    selectedRegistered.severity}
+                </p>
+              )}
+              {selectedRegistered.screenshot_path && (
+                <p>
+                  <span className="font-semibold text-gray-700">スクショ: </span>
+                  <a
+                    href={`${API_BASE_URL}${selectedRegistered.screenshot_path}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 underline"
+                  >
+                    {selectedRegistered.screenshot_path}
+                  </a>
+                </p>
+              )}
+              {selectedRegistered.device_info && (
+                <p className="whitespace-pre-wrap">
+                  <span className="font-semibold text-gray-700">端末情報: </span>
+                  {selectedRegistered.device_info}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={goHome}
@@ -934,49 +1509,279 @@ export default function Home() {
               <p className="mt-2">エラーコード: {detailContext.error}</p>
             )}
           </div>
-          <form onSubmit={handleDetailSubmit} className="flex flex-col gap-2 text-sm">
+
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {([1, 2, 3] as const).map((step) => (
+              <button
+                key={step}
+                type="button"
+                onClick={() => {
+                  if (step < detailStep) {
+                    setDetailStep(step);
+                    setActionError('');
+                    return;
+                  }
+                  if (step === detailStep) return;
+                  if (step === 2 && detailStep === 1) {
+                    void goDetailNext();
+                    return;
+                  }
+                  if (step === 3 && stepsAiApproved && (detailStep === 1 || detailStep === 2)) {
+                    if (detailStep === 1 && (!place.trim() || !troubleType || !email.trim() || !isValidEmail(email))) {
+                      setActionError('①の場所・種別・メールを先に入力してください。');
+                      return;
+                    }
+                    setDetailStep(3);
+                    setActionError('');
+                  }
+                }}
+                className={`rounded px-3 py-1.5 font-medium ${
+                  detailStep === step
+                    ? 'bg-gray-900 text-white'
+                    : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {step === 1 ? '① 場所・種別・mail' : step === 2 ? '② 再現手順' : '③ 追加情報'}
+              </button>
+            ))}
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              if (detailStep !== 3) {
+                e.preventDefault();
+                void goDetailNext();
+                return;
+              }
+              void handleDetailSubmit(e);
+            }}
+            className="flex flex-col gap-3 text-sm"
+          >
             <h2 className="font-semibold">
               {detailMode === 'finalizeDraft' ? '一時保存の詳細入力' : '詳細を入力'}
+              <span className="ml-2 font-normal text-gray-500">（{detailStep} / 3）</span>
             </h2>
+
             {name.trim() && (
               <p className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
                 報告者名: {name}
               </p>
             )}
-            <input
-              type="text"
-              value={place}
-              onChange={(e) => setPlace(e.target.value)}
-              placeholder="発生場所 *"
-              className="rounded border border-gray-300 px-3 py-2"
-            />
-            <select
-              value={troubleType}
-              onChange={(e) => setTroubleType(e.target.value as TroubleType | '')}
-              className="rounded border border-gray-300 px-3 py-2"
-            >
-              <option value="">種別を選択 *</option>
-              <option value="customer">customer</option>
-              <option value="stuff">stuff</option>
-            </select>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="メールアドレス *"
-              className="rounded border border-gray-300 px-3 py-2"
-            />
-            <p className="text-xs text-gray-500">発生日時は登録時に自動で記録されます。</p>
+
+            {detailStep === 1 && (
+              <>
+                <input
+                  type="text"
+                  value={place}
+                  onChange={(e) => setPlace(e.target.value)}
+                  placeholder="発生場所 *"
+                  className="rounded border border-gray-300 px-3 py-2"
+                />
+                <select
+                  value={troubleType}
+                  onChange={(e) => setTroubleType(e.target.value as TroubleType | '')}
+                  className="rounded border border-gray-300 px-3 py-2"
+                >
+                  <option value="">種別を選択 *</option>
+                  <option value="customer">customer</option>
+                  <option value="stuff">stuff</option>
+                </select>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="メールアドレス *"
+                  className="rounded border border-gray-300 px-3 py-2"
+                />
+                <p className="text-xs text-gray-500">発生日時は登録時に自動で記録されます。</p>
+              </>
+            )}
+
+            {detailStep === 2 && (
+              <>
+                <p className="text-xs text-gray-600">
+                  操作を時系列で書いてください（最低3件・最大15件・各8文字以上）。
+                  AIチェックに合格すると次へ進めます。
+                </p>
+                <ul className="space-y-2">
+                  {reproductionSteps.map((stepText, index) => (
+                    <li key={index} className="flex gap-2">
+                      <span className="mt-2 w-6 shrink-0 text-xs text-gray-500">
+                        {index + 1}.
+                      </span>
+                      <input
+                        type="text"
+                        value={stepText}
+                        onChange={(e) => updateReproductionStep(index, e.target.value)}
+                        placeholder={`操作 ${index + 1}（例: 端末の電源を入れてホーム画面を確認）`}
+                        className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeReproductionStep(index)}
+                        disabled={reproductionSteps.length <= 1}
+                        className="shrink-0 text-xs text-red-700 underline disabled:opacity-40"
+                      >
+                        削除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={addReproductionStep}
+                    disabled={reproductionSteps.length >= 15}
+                    className="rounded border border-gray-400 bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    手順を追加
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runReproductionAssist()}
+                    disabled={assistLoading}
+                    className="rounded bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                  >
+                    {assistLoading ? 'AIチェック中…' : 'AIにチェックしてもらう'}
+                  </button>
+                </div>
+                {assistError && (
+                  <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    {assistError}
+                  </p>
+                )}
+                {gapWarnings.length > 0 && (
+                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+                    <p className="font-semibold text-amber-950">指摘</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-950">
+                      {gapWarnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {suggestedNextSteps.length > 0 && (
+                  <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                    <p className="font-semibold text-gray-800">次の操作候補（クリックで追加）</p>
+                    <ul className="mt-2 space-y-1">
+                      {suggestedNextSteps.map((s) => (
+                        <li key={s}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReproductionSteps((prev) =>
+                                prev.length >= 15 ? prev : [...prev, s],
+                              );
+                              invalidateStepsApproval();
+                            }}
+                            className="text-left text-gray-800 underline hover:text-gray-950"
+                          >
+                            {s}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {stepsAiApproved && (
+                  <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                    AIチェック合格。次へ進めます。
+                  </p>
+                )}
+              </>
+            )}
+
+            {detailStep === 3 && (
+              <>
+                <p className="text-xs text-gray-600">わかれば入力（すべて任意）</p>
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold">再現率</span>
+                  <select
+                    value={reproductionRate}
+                    onChange={(e) => setReproductionRate(e.target.value)}
+                    className="rounded border border-gray-300 px-3 py-2"
+                  >
+                    <option value="">未選択</option>
+                    <option value="always">いつも再現する</option>
+                    <option value="often">よく再現する</option>
+                    <option value="sometimes">ときどき再現する</option>
+                    <option value="rare">まれに再現する</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold">重要度</span>
+                  <select
+                    value={severity}
+                    onChange={(e) => setSeverity(e.target.value)}
+                    className="rounded border border-gray-300 px-3 py-2"
+                  >
+                    <option value="">未選択</option>
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold">スクリーンショット</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      void handleScreenshotUpload(file);
+                    }}
+                    className="rounded border border-gray-300 px-3 py-2"
+                  />
+                  {uploadingScreenshot && (
+                    <span className="text-xs text-gray-500">アップロード中…</span>
+                  )}
+                  {screenshotPath && (
+                    <span className="text-xs text-emerald-700">添付済み: {screenshotPath}</span>
+                  )}
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-semibold">端末情報</span>
+                  <textarea
+                    value={deviceInfo}
+                    onChange={(e) => setDeviceInfo(e.target.value)}
+                    rows={3}
+                    placeholder="機種名・OS・アプリバージョンなど"
+                    className="rounded border border-gray-300 px-3 py-2"
+                  />
+                </label>
+              </>
+            )}
+
             {actionError && <p className="text-sm text-red-700">{actionError}</p>}
             {actionSuccess && <p className="text-sm text-emerald-700">{actionSuccess}</p>}
+
             <div className="mt-2 flex flex-wrap gap-3">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
-              >
-                {submitting ? '登録中…' : '登録する'}
-              </button>
+              {detailStep > 1 && (
+                <button
+                  type="button"
+                  onClick={goDetailBack}
+                  className="rounded border border-gray-400 bg-white px-4 py-2 font-semibold hover:bg-gray-50"
+                >
+                  戻る
+                </button>
+              )}
+              {detailStep < 3 ? (
+                <button
+                  type="submit"
+                  disabled={detailStep === 2 && !stepsAiApproved}
+                  className="rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                >
+                  次へ
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                >
+                  {submitting ? '登録中…' : '登録する'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

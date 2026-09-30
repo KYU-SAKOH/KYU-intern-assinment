@@ -18,19 +18,34 @@ import type { components } from '@/types/api';
  *
  * できること:
  *  - キーワード / 種別 / 対応状況 / 期間で検索
+ *  - 対応優先度が高い順に一覧表示
  *  - ラジオボタンで対応状況を変更（画面は日本語、保存値は英語）
  *  - チャット形式で園館スタッフとやり取り
  *
  * 使う API:
- *  - GET  /samples?q=&trouble_type=&status=&date_from=&date_to=
+ *  - GET  /samples?sort=priority&q=&trouble_type=&status=&date_from=&date_to=
  *  - PATCH /samples/{id}/admin  … status 更新
  *  - GET/POST /samples/{id}/messages … 対応履歴
  */
 
-type Sample = components['schemas']['SampleResponse'];
+type Sample = components['schemas']['SampleResponse'] & {
+  priority_score?: number;
+  reproduction_rate?: string | null;
+  severity?: string | null;
+};
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
+function priorityBand(score: number | undefined): { label: string; className: string } {
+  const s = typeof score === 'number' ? score : 0;
+  if (s >= 70) {
+    return { label: `優先度: 高 (${s})`, className: 'bg-red-100 text-red-900' };
+  }
+  if (s >= 40) {
+    return { label: `優先度: 中 (${s})`, className: 'bg-amber-100 text-amber-900' };
+  }
+  return { label: `優先度: 低 (${s})`, className: 'bg-gray-100 text-gray-700' };
+}
 export default function AdminPage() {
   const [samples, setSamples] = useState<Sample[]>([]);
   // 行ごとの編集中ステータス（保存ボタンを押すまでの下書き）
@@ -60,6 +75,7 @@ export default function AdminPage() {
    */
   const loadSamples = useCallback(async () => {
     const params = new URLSearchParams();
+    params.set('sort', 'priority');
     if (appliedKeyword.trim()) {
       params.set('q', appliedKeyword.trim());
     }
@@ -78,7 +94,7 @@ export default function AdminPage() {
     }
 
     const query = params.toString();
-    const res = await fetch(`${API_BASE_URL}/samples${query ? `?${query}` : ''}`);
+    const res = await fetch(`${API_BASE_URL}/samples?${query}`);
     if (!res.ok) {
       setError(`一覧の取得に失敗しました (${res.status})`);
       return;
@@ -181,12 +197,13 @@ export default function AdminPage() {
 
       <p className="mb-4 text-sm text-gray-600">
         問い合わせの対応状況をラジオボタンで選び保存できます。
+        一覧は対応優先度が高い順（再現率・重要度・内容を参考）に表示します。
         園館スタッフとのやり取りは下のチャット（対応履歴）で行います。
         新規登録時の初期ステータスは{' '}
         <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">
           未対応
         </span>{' '}
-        です。一覧はキーワード・種別・対応状況・期間で絞り込めます。
+        です。キーワード・種別・対応状況・期間で絞り込めます。
         （色: 未対応=赤 / 一時対応済み=ピンク / 完全対応済み=色なし）
       </p>
 
@@ -296,12 +313,18 @@ export default function AdminPage() {
         <ul className="space-y-4">
           {samples.map((sample) => {
             const currentStatus = toSampleStatus(sample.status);
+            const priority = priorityBand(sample.priority_score);
             return (
               <li key={sample.id} className="rounded border border-gray-200 p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <span className="font-bold">{sample.name}</span>
                   <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
                     ID {sample.id}
+                  </span>
+                  <span
+                    className={`rounded px-2 py-0.5 text-xs font-semibold ${priority.className}`}
+                  >
+                    {priority.label}
                   </span>
                   {sample.trouble_type && (
                     <span
@@ -325,6 +348,15 @@ export default function AdminPage() {
                 <p className="mb-1 text-sm text-gray-600">
                   日時: {new Date(sample.date).toLocaleString('ja-JP')} ／ 場所: {sample.place}
                 </p>
+                {(sample.severity || sample.reproduction_rate) && (
+                  <p className="mb-2 text-xs text-gray-600">
+                    {sample.severity ? `重要度: ${sample.severity}` : null}
+                    {sample.severity && sample.reproduction_rate ? ' ／ ' : null}
+                    {sample.reproduction_rate
+                      ? `再現率: ${sample.reproduction_rate}`
+                      : null}
+                  </p>
+                )}
                 {(sample.expected_actions || sample.actual_actions) && (
                   <div className="mb-3 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
                     {sample.expected_actions && (

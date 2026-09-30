@@ -60,6 +60,19 @@ class SampleModel(Base):
     # トップページの一時保存（詳細未入力）。False = 本登録済み
     is_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
 
+    # 詳細入力ウィザード（②再現手順 / ③任意メタ）
+    # reproduction_steps は JSON 配列文字列（例: '["端末を起動","アプリを開く"]'）
+    reproduction_steps: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reproduction_rate: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    screenshot_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    device_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 管理者一覧の並び替え用（登録・更新時に再計算）
+    priority_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, index=True
+    )
+
     # チャット形式の対応履歴（園館スタッフ ↔ 管理者）
     messages: Mapped[list["SampleMessageModel"]] = relationship(
         "SampleMessageModel",

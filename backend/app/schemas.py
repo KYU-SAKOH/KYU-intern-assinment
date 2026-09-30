@@ -10,13 +10,54 @@ schemas.py … HTTP で受け取る / 返す形（Pydantic）
   - 管理者更新は本人メール照合なしで status / admin_comment だけ触る
 """
 
+import json
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # 管理者が選べる対応状況（英語のまま DB に保存する）
 SampleStatus = Literal["Pending", "Temporarily Resolved", "Fully Resolved"]
+ReproductionRate = Literal["always", "often", "sometimes", "rare"]
+SeverityLevel = Literal["low", "medium", "high"]
+
+MIN_REPRODUCTION_STEPS = 3
+MAX_REPRODUCTION_STEPS = 15
+MIN_REPRODUCTION_STEP_LEN = 8
+
+
+def serialize_reproduction_steps(steps: list[str]) -> str:
+    cleaned = [s.strip() for s in steps if isinstance(s, str) and s.strip()]
+    return json.dumps(cleaned, ensure_ascii=False)
+
+
+def deserialize_reproduction_steps(raw: str | None) -> list[str]:
+    if not raw or not raw.strip():
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(s).strip() for s in data if str(s).strip()]
+
+
+def assert_reproduction_steps_valid(steps: list[str]) -> list[str]:
+    """検証して正規化済みリストを返す。不正なら ValueError。"""
+    cleaned = [s.strip() for s in steps if isinstance(s, str) and s.strip()]
+    if len(cleaned) < MIN_REPRODUCTION_STEPS:
+        raise ValueError(
+            f"再現手順は少なくとも {MIN_REPRODUCTION_STEPS} 件必要です。"
+        )
+    if len(cleaned) > MAX_REPRODUCTION_STEPS:
+        raise ValueError(f"再現手順は最大 {MAX_REPRODUCTION_STEPS} 件までです。")
+    for i, step in enumerate(cleaned, start=1):
+        if len(step) < MIN_REPRODUCTION_STEP_LEN:
+            raise ValueError(
+                f"手順 {i} が短すぎます（{MIN_REPRODUCTION_STEP_LEN} 文字以上）。"
+            )
+    return cleaned
 
 
 class SampleCreate(BaseModel):
@@ -34,6 +75,11 @@ class SampleCreate(BaseModel):
     actual_actions: str | None = None
     error_code: str | None = None
     ai_initial_response: str | None = None
+    reproduction_steps: list[str] | None = None
+    reproduction_rate: ReproductionRate | None = None
+    severity: SeverityLevel | None = None
+    screenshot_path: str | None = None
+    device_info: str | None = None
 
 
 class SampleTriageCompleteCreate(BaseModel):
@@ -50,6 +96,18 @@ class SampleTriageCompleteCreate(BaseModel):
     actual_actions: str = Field(min_length=1)
     error_code: str | None = None
     ai_initial_response: str | None = None
+    reproduction_steps: list[str]
+    reproduction_rate: ReproductionRate | None = None
+    severity: SeverityLevel | None = None
+    screenshot_path: str | None = None
+    device_info: str | None = None
+
+    @model_validator(mode="after")
+    def _check_steps(self) -> "SampleTriageCompleteCreate":
+        self.reproduction_steps = assert_reproduction_steps_valid(
+            self.reproduction_steps
+        )
+        return self
 
 
 class SampleDraftCreate(BaseModel):
@@ -69,6 +127,18 @@ class SampleFinalize(BaseModel):
     place: str
     trouble_type: str
     email: str = Field(min_length=3, max_length=255)
+    reproduction_steps: list[str]
+    reproduction_rate: ReproductionRate | None = None
+    severity: SeverityLevel | None = None
+    screenshot_path: str | None = None
+    device_info: str | None = None
+
+    @model_validator(mode="after")
+    def _check_steps(self) -> "SampleFinalize":
+        self.reproduction_steps = assert_reproduction_steps_valid(
+            self.reproduction_steps
+        )
+        return self
 
 
 class SampleUpdate(BaseModel):
@@ -88,6 +158,19 @@ class SampleUpdate(BaseModel):
     actual_actions: str | None = None
     error_code: str | None = None
     ai_initial_response: str | None = None
+    # 本登録の再編集では再現手順も必須（フロントの詳細ウィザードと揃える）
+    reproduction_steps: list[str]
+    reproduction_rate: ReproductionRate | None = None
+    severity: SeverityLevel | None = None
+    screenshot_path: str | None = None
+    device_info: str | None = None
+
+    @model_validator(mode="after")
+    def _check_steps(self) -> "SampleUpdate":
+        self.reproduction_steps = assert_reproduction_steps_valid(
+            self.reproduction_steps
+        )
+        return self
 
 
 class SamplePartialUpdate(BaseModel):
@@ -109,6 +192,11 @@ class SamplePartialUpdate(BaseModel):
     actual_actions: str | None = None
     error_code: str | None = None
     ai_initial_response: str | None = None
+    reproduction_steps: list[str] | None = None
+    reproduction_rate: ReproductionRate | None = None
+    severity: SeverityLevel | None = None
+    screenshot_path: str | None = None
+    device_info: str | None = None
 
 
 class SampleAdminUpdate(BaseModel):
@@ -143,9 +231,49 @@ class SampleResponse(BaseModel):
     status: SampleStatus = "Pending"
     admin_comment: str | None = None
     is_draft: bool = False
+    reproduction_steps: list[str] = Field(default_factory=list)
+    reproduction_rate: str | None = None
+    severity: str | None = None
+    screenshot_path: str | None = None
+    device_info: str | None = None
+    priority_score: int = 0
 
-    # ORM オブジェクト（SampleModel）から自動でフィールドを読めるようにする設定
     model_config = {"from_attributes": True}
+
+    @field_validator("reproduction_steps", mode="before")
+    @classmethod
+    def _parse_steps(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(s).strip() for s in value if str(s).strip()]
+        if isinstance(value, str):
+            return deserialize_reproduction_steps(value)
+        return []
+
+
+class ReproductionAssistRequest(BaseModel):
+    """POST /reproduction-assist のリクエスト。"""
+
+    reproduction_steps: list[str] = Field(default_factory=list)
+    expected_actions: str = ""
+    actual_actions: str = ""
+    error_code: str | None = None
+
+
+class ReproductionAssistResponse(BaseModel):
+    """再現手順の AI チェック結果。"""
+
+    gap_warnings: list[str] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)
+    can_proceed: bool = False
+
+
+class UploadScreenshotResponse(BaseModel):
+    """スクショアップロード結果。"""
+
+    path: str
+    url: str
 
 
 class TriageRequest(BaseModel):

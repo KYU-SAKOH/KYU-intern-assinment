@@ -12,15 +12,21 @@ import os
 import re
 import uuid
 from datetime import date, datetime, time
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import SampleMessageModel, SampleModel
+from priority import score_from_sample_fields
+from reproduction_assist import run_reproduction_assist
 from schemas import (
+    ReproductionAssistRequest,
+    ReproductionAssistResponse,
     SampleAdminUpdate,
     SampleCreate,
     SampleDraftCreate,
@@ -33,11 +39,20 @@ from schemas import (
     SampleUpdate,
     TriageRequest,
     TriageResponse,
+    UploadScreenshotResponse,
+    deserialize_reproduction_steps,
+    serialize_reproduction_steps,
 )
 from triage import run_triage
 
 # フロントの URL（CORS で「このオリジンからはアクセスOK」と許可する）
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
+# スクショ保存先（デモ用・コンテナ内ローカル）
+UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_SCREENSHOT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024
 
 # FastAPI アプリ本体。@app.get / @app.post などで「URL と処理」を結びつける
 app = FastAPI(title="Sample API", version="1.0.0")
@@ -51,6 +66,47 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 画像配信は /media（POST /uploads/screenshot とパスを分ける）
+app.mount("/media", StaticFiles(directory=str(UPLOAD_DIR)), name="media")
+
+
+def _apply_detail_meta(
+    db_sample: SampleModel,
+    *,
+    reproduction_steps: list[str],
+    reproduction_rate: str | None,
+    severity: str | None,
+    screenshot_path: str | None,
+    device_info: str | None,
+) -> None:
+    db_sample.reproduction_steps = serialize_reproduction_steps(reproduction_steps)
+    db_sample.reproduction_rate = reproduction_rate
+    db_sample.severity = severity
+    db_sample.screenshot_path = (screenshot_path or "").strip() or None
+    db_sample.device_info = (device_info or "").strip() or None
+
+
+def _refresh_priority_score(db_sample: SampleModel) -> None:
+    """現在のフィールドから priority_score を再計算してセットする。"""
+    steps = deserialize_reproduction_steps(db_sample.reproduction_steps)
+    db_sample.priority_score = score_from_sample_fields(
+        expected_actions=db_sample.expected_actions,
+        actual_actions=db_sample.actual_actions,
+        error_code=db_sample.error_code,
+        reproduction_steps_raw=steps,
+        reproduction_rate=db_sample.reproduction_rate,
+        severity=db_sample.severity,
+        status=db_sample.status,
+    )
+
+
+def _serialize_steps_in_payload(data: dict) -> dict:
+    """list[str] の reproduction_steps を DB 用 JSON 文字列に変換する。"""
+    steps = data.get("reproduction_steps")
+    if isinstance(steps, list):
+        data["reproduction_steps"] = serialize_reproduction_steps(steps)
+    return data
 
 
 @app.get("/")
@@ -113,6 +169,10 @@ def get_samples(
         None,
         description="登録時メールで絞り込み（トップページの「自分のサンプル」検索用）",
     ),
+    sort: str | None = Query(
+        None,
+        description="priority=対応優先度降順（同点は日時降順）。省略時は日時降順",
+    ),
     # Depends(get_db) … リクエストごとに DB セッションを用意し、終わったら閉じる
     db: Session = Depends(get_db),
 ):
@@ -167,8 +227,12 @@ def get_samples(
     if date_to:
         query = query.filter(SampleModel.date <= datetime.combine(date_to, time.max))
 
-    # 新しい日時が上に来るように並べて返す
     # response_model=SampleResponse のため、email はレスポンスに含まれない
+    if (sort or "").strip().lower() == "priority":
+        return query.order_by(
+            SampleModel.priority_score.desc(),
+            SampleModel.date.desc(),
+        ).all()
     return query.order_by(SampleModel.date.desc()).all()
 
 
@@ -208,6 +272,45 @@ def triage_report(body: TriageRequest, db: Session = Depends(get_db)):
     )
 
 
+@app.post("/reproduction-assist", response_model=ReproductionAssistResponse)
+def reproduction_assist(body: ReproductionAssistRequest):
+    """再現手順の飛躍・省略チェックと次操作サジェスト。"""
+    result = run_reproduction_assist(
+        steps=body.reproduction_steps,
+        expected_actions=body.expected_actions,
+        actual_actions=body.actual_actions,
+        error_code=body.error_code,
+    )
+    return ReproductionAssistResponse(**result)
+
+
+@app.post("/uploads/screenshot", response_model=UploadScreenshotResponse)
+async def upload_screenshot(file: UploadFile = File(...)):
+    """デモ用のスクショアップロード（JPEG/PNG/WebP・最大2MB）。"""
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_SCREENSHOT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="JPEG / PNG / WebP のみアップロードできます。",
+        )
+    data = await file.read()
+    if len(data) > MAX_SCREENSHOT_BYTES:
+        raise HTTPException(status_code=400, detail="ファイルサイズは 2MB 以下にしてください。")
+    if not data:
+        raise HTTPException(status_code=400, detail="空のファイルです。")
+
+    ext = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }[content_type]
+    filename = f"{uuid.uuid4().hex}{ext}"
+    dest = UPLOAD_DIR / filename
+    dest.write_bytes(data)
+    path = f"/media/{filename}"
+    return UploadScreenshotResponse(path=path, url=path)
+
+
 @app.post("/samples", response_model=SampleResponse, status_code=201)
 def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     """
@@ -224,7 +327,9 @@ def create_sample(sample: SampleCreate, db: Session = Depends(get_db)):
     payload["is_draft"] = False
     if payload.get("trouble_detail") is None:
         payload["trouble_detail"] = ""
+    payload = _serialize_steps_in_payload(payload)
     db_sample = SampleModel(**payload)  # ORM の1行分のオブジェクトを作る
+    _refresh_priority_score(db_sample)
     db.add(db_sample)  # 「追加予定」としてセッションに載せる
     db.commit()  # 実際に DB へ書き込む
     db.refresh(db_sample)  # DB が採番した id などを読み直す
@@ -249,6 +354,7 @@ def create_draft_sample(body: SampleDraftCreate, db: Session = Depends(get_db)):
         status="Pending",
         admin_comment=None,
         is_draft=True,
+        priority_score=0,
     )
     db.add(db_sample)
     db.commit()
@@ -277,6 +383,15 @@ def create_complete_from_triage(
         admin_comment=None,
         is_draft=False,
     )
+    _apply_detail_meta(
+        db_sample,
+        reproduction_steps=body.reproduction_steps,
+        reproduction_rate=body.reproduction_rate,
+        severity=body.severity,
+        screenshot_path=body.screenshot_path,
+        device_info=body.device_info,
+    )
+    _refresh_priority_score(db_sample)
     db.add(db_sample)
     db.commit()
     db.refresh(db_sample)
@@ -299,6 +414,15 @@ def finalize_draft_sample(
     db_sample.trouble_type = body.trouble_type.strip()
     db_sample.email = _normalize_email(body.email)
     db_sample.is_draft = False
+    _apply_detail_meta(
+        db_sample,
+        reproduction_steps=body.reproduction_steps,
+        reproduction_rate=body.reproduction_rate,
+        severity=body.severity,
+        screenshot_path=body.screenshot_path,
+        device_info=body.device_info,
+    )
+    _refresh_priority_score(db_sample)
 
     db.commit()
     db.refresh(db_sample)
@@ -321,11 +445,13 @@ def update_sample(
 
     data = sample.model_dump()
     _verify_owner_email(db_sample, data.pop("email"))
+    data = _serialize_steps_in_payload(data)
 
     # 送られてきた各フィールドを ORM オブジェクトにセット
     for key, value in data.items():
         setattr(db_sample, key, value)
 
+    _refresh_priority_score(db_sample)
     db.commit()
     db.refresh(db_sample)
     return db_sample
@@ -348,10 +474,12 @@ def partial_update_sample(
     if email is None:
         raise HTTPException(status_code=400, detail="email is required")
     _verify_owner_email(db_sample, email)
+    data = _serialize_steps_in_payload(data)
 
     for key, value in data.items():
         setattr(db_sample, key, value)
 
+    _refresh_priority_score(db_sample)
     db.commit()
     db.refresh(db_sample)
     return db_sample
@@ -377,6 +505,7 @@ def admin_update_sample(
     # 空白だけのコメントは「未記入」と同じ扱いにする
     comment = (sample.admin_comment or "").strip()
     db_sample.admin_comment = comment if comment else None
+    _refresh_priority_score(db_sample)
 
     db.commit()
     db.refresh(db_sample)
