@@ -6,9 +6,9 @@
 - 問題なければ類似サンプル ID と一次回答を返す
 
 TRIAGE_MODE:
-  - mock … OpenAI なし（ローカル検証用）
-  - openai … OPENAI_API_KEY 必須
-  - 未設定 … キーがあれば openai、なければ mock
+  - mock … Gemini なし（ローカル検証用）
+  - gemini … GEMINI_API_KEY 必須
+  - 未設定 … キーがあれば gemini、なければ mock
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ from sqlalchemy.orm import Session
 
 from models import SampleModel
 
-# 既定モデル（環境変数 OPENAI_MODEL で上書き可）
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+# 既定モデル（環境変数 GEMINI_MODEL で上書き可）
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 # 複数トラブル混在の簡易判定用キーワード
 _MULTI_ISSUE_MARKERS = ("また", "別件", "もう一つ", "もうひとつ", "および", "加えて")
@@ -128,14 +128,16 @@ def _mock_initial_response(
     actual_short = actual if len(actual) <= 120 else actual[:117] + "…"
     code_line = f"エラーコード: {error_code}\n" if error_code else ""
     return (
-        "【モック一次回答】OpenAI を使わずに生成したデモ用の回答です。\n\n"
+        "【モック一次回答】AI API を使わずに生成したデモ用の回答です。\n\n"
         f"報告内容（期待）: {expected_short}\n"
         f"報告内容（実際）: {actual_short}\n"
         f"{code_line}\n"
         "想定原因: 端末・ネットワーク・チケット状態のいずれかで、"
         "期待どおりの動作に至っていない可能性があります。\n"
-        "対応要否: 園館側で再試行・端末再起動を確認のうえ、"
-        "再現する場合は Terravie 開発チームへのエスカレーションを推奨します。\n"
+        "一時的な解決方法: 対象端末の再起動、ネットワーク再接続、"
+        "別端末での再試行を実施してください。\n"
+        "対応要否: 園館側で一時対応を試したうえで再現する場合は、"
+        "Terravie 開発チームへのエスカレーションを推奨します。\n"
         "次に確認すべき点: 発生時刻、対象チケット種別、端末ID、"
         "他ゲストでも同様か。"
     )
@@ -147,7 +149,7 @@ def _run_mock_triage(
     actual: str,
     code: str | None,
 ) -> dict[str, Any]:
-    """OpenAI なしのルールベース・トリアージ。"""
+    """AI API なしのルールベース・トリアージ。"""
     if len(expected) < 10 or len(actual) < 10:
         return {
             "status": "needs_reentry",
@@ -180,84 +182,11 @@ def _run_mock_triage(
     }
 
 
-def _run_openai_triage(
-    db: Session,
-    expected: str,
-    actual: str,
-    code: str | None,
-    api_key: str,
+def _parse_triage_response(
+    parsed: dict[str, Any],
+    candidates: list[SampleModel],
 ) -> dict[str, Any]:
-    """OpenAI API によるトリアージ。"""
-    from openai import OpenAI
-
-    if len(expected) < 10 or len(actual) < 10:
-        return {
-            "status": "needs_reentry",
-            "reentry_reasons": [
-                "記述が短すぎます。実施した操作と、期待結果・実際の結果を具体的に書いてください。"
-            ],
-            "similar_sample_ids": [],
-            "initial_response": None,
-        }
-
-    candidates = find_candidate_samples(db, expected, actual, code)
-    candidate_payload = [_sample_brief(s) for s in candidates]
-
-    system_prompt = """あなたは Terravie（園館向けチケット・入場システム）の問い合わせ一次対応アシスタントです。
-園館スタッフからのトラブル報告を解析し、次のいずれかを返してください。
-
-1. needs_reentry … 次のいずれかに当てはまる場合
-   - 情報不足（再現手順・期待と実際の差・発生条件などが不明瞭）
-   - 複数の無関係なトラブルが1件に混在している
-2. ok … 単一のトラブルとして把握でき、一次回答を出せる場合
-
-必ず JSON のみを返し、キーは次のとおりです:
-{
-  "status": "ok" | "needs_reentry",
-  "reentry_reasons": string[],  // needs_reentry のとき理由を日本語で。ok なら []
-  "similar_sample_ids": number[],  // 候補から類似するものの id（最大5）。needs_reentry なら []
-  "initial_response": string | null  // ok のとき: 想定原因・対応要否・次に確認すべき点を日本語で。needs_reentry なら null
-}
-"""
-
-    user_prompt = {
-        "new_report": {
-            "expected_actions": expected,
-            "actual_actions": actual,
-            "error_code": code,
-        },
-        "candidate_samples": candidate_payload,
-    }
-
-    client = OpenAI(api_key=api_key)
-    try:
-        completion = client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": json.dumps(user_prompt, ensure_ascii=False),
-                },
-            ],
-        )
-    except Exception as exc:  # noqa: BLE001 — API 障害をそのまま 502 にする
-        raise HTTPException(
-            status_code=502,
-            detail=f"OpenAI API の呼び出しに失敗しました: {exc}",
-        ) from exc
-
-    raw = completion.choices[0].message.content or "{}"
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="OpenAI の応答を JSON として解釈できませんでした。",
-        ) from exc
-
+    """Gemini / mock 共通の JSON 応答バリデーション。"""
     status = parsed.get("status")
     if status not in ("ok", "needs_reentry"):
         status = "needs_reentry"
@@ -310,6 +239,97 @@ def _run_openai_triage(
     }
 
 
+def _run_gemini_triage(
+    db: Session,
+    expected: str,
+    actual: str,
+    code: str | None,
+    api_key: str,
+) -> dict[str, Any]:
+    """Gemini API によるトリアージ。"""
+    from google import genai
+    from google.genai import types
+
+    if len(expected) < 10 or len(actual) < 10:
+        return {
+            "status": "needs_reentry",
+            "reentry_reasons": [
+                "記述が短すぎます。実施した操作と、期待結果・実際の結果を具体的に書いてください。"
+            ],
+            "similar_sample_ids": [],
+            "initial_response": None,
+        }
+
+    candidates = find_candidate_samples(db, expected, actual, code)
+    candidate_payload = [_sample_brief(s) for s in candidates]
+
+    system_prompt = """あなたは Terravie（園館向けチケット・入場システム）の問い合わせ一次対応アシスタントです。
+園館スタッフからのトラブル報告を解析し、次のいずれかを返してください。
+
+1. needs_reentry … 次のいずれかに当てはまる場合
+   - 情報不足（再現手順・期待と実際の差・発生条件などが不明瞭）
+   - 複数の無関係なトラブルが1件に混在している
+2. ok … 単一のトラブルとして把握でき、一次回答を出せる場合
+
+必ず JSON のみを返し、キーは次のとおりです:
+{
+  "status": "ok" | "needs_reentry",
+  "reentry_reasons": string[],  // needs_reentry のとき理由を日本語で。ok なら []
+  "similar_sample_ids": number[],  // 候補から類似するものの id（最大5）。needs_reentry なら []
+  "initial_response": string | null  // ok のとき日本語。needs_reentry なら null
+}
+
+ok のときの initial_response は、次の4項目をこの順番・見出し付きで必ず含めてください:
+1. 想定原因
+2. 一時的な解決方法（園館側ですぐ試せる応急対応）
+3. 対応要否（開発チームへの連絡・エスカレーションが必要か）
+4. 次に確認すべき点
+"""
+
+    user_prompt = {
+        "new_report": {
+            "expected_actions": expected,
+            "actual_actions": actual,
+            "error_code": code,
+        },
+        "candidate_samples": candidate_payload,
+    }
+
+    client = genai.Client(api_key=api_key)
+    try:
+        response = client.models.generate_content(
+            model=DEFAULT_MODEL,
+            contents=json.dumps(user_prompt, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                response_mime_type="application/json",
+                system_instruction=system_prompt,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — API 障害をそのまま 502 にする
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini API の呼び出しに失敗しました: {exc}",
+        ) from exc
+
+    raw = response.text or "{}"
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini の応答を JSON として解釈できませんでした。",
+        ) from exc
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini の応答を JSON オブジェクトとして解釈できませんでした。",
+        )
+
+    return _parse_triage_response(parsed, candidates)
+
+
 def run_triage(
     db: Session,
     expected_actions: str,
@@ -317,7 +337,7 @@ def run_triage(
     error_code: str | None,
 ) -> dict[str, Any]:
     """
-    トリアージを実行する（mock または OpenAI）。
+    トリアージを実行する（mock または Gemini）。
 
     戻り値:
       {
@@ -328,27 +348,28 @@ def run_triage(
       }
     """
     mode = os.getenv("TRIAGE_MODE", "").strip().lower()
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
     expected = expected_actions.strip()
     actual = actual_actions.strip()
     code = (error_code or "").strip() or None
 
-    # TRIAGE_MODE=openai のときはキー必須（空なら mock に落とさない）
-    if mode == "openai":
+    # TRIAGE_MODE=gemini のときはキー必須（空なら mock に落とさない）
+    if mode == "gemini":
         if not api_key:
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "TRIAGE_MODE=openai ですが OPENAI_API_KEY が未設定です。"
-                    "backend/environments/.env.local に追加してください。"
+                    "TRIAGE_MODE=gemini ですが GEMINI_API_KEY が未設定です。"
+                    "backend/environments/.env.secret にキーを書き、"
+                    "backend コンテナを再起動してください。"
                 ),
             )
-        return _run_openai_triage(db, expected, actual, code, api_key)
+        return _run_gemini_triage(db, expected, actual, code, api_key)
 
     # mock 明示、またはキーなし → モック
     if mode == "mock" or not api_key:
         return _run_mock_triage(db, expected, actual, code)
 
-    # モード未指定かつキーあり → OpenAI
-    return _run_openai_triage(db, expected, actual, code, api_key)
+    # モード未指定かつキーあり → Gemini
+    return _run_gemini_triage(db, expected, actual, code, api_key)

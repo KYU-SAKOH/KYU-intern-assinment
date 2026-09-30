@@ -5,3 +5,5 @@ __pycache__/
 environments/.env.*
 !environments/.env.example
 !environments/.env.local
+!environments/.env.secret.example
+env.key

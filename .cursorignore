@@ -1,0 +1,3 @@
+# Secrets - do not index or expose to Agent
+backend/environments/.env.secret
+backend/environments/env.key

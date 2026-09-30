@@ -196,7 +196,7 @@ def triage_report(body: TriageRequest, db: Session = Depends(get_db)):
             .all()
         )
         by_id = {row.id: row for row in rows}
-        # OpenAI が返した順を保つ
+        # AI が返した順を保つ
         similar = [
             by_id[sid] for sid in result["similar_sample_ids"] if sid in by_id
         ]
