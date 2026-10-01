@@ -491,21 +491,28 @@ export default function Home() {
     if (sample?.staff_notify_unread) {
       const mail = email.trim();
       const fullyResolved = sample.status === 'Fully Resolved';
+      // コメント未読のみメール＋返信が必要。status／完了は戻るだけで消せる
       const needsReply =
         !fullyResolved && sample.staff_notify_kind === 'comment';
-      const canClear =
-        Boolean(mail) && (!needsReply || staffRepliedThisSession);
+      const canClear = needsReply
+        ? Boolean(mail) && staffRepliedThisSession
+        : true;
 
       if (canClear) {
-        const cleared = await markStaffNotificationRead(sample.id, mail);
+        const cleared = await markStaffNotificationRead(
+          sample.id,
+          needsReply ? mail : mail || undefined,
+        );
         if (!cleared) {
           setHomeNotice(
-            'メールが一致せず未読を消せませんでした。登録時のメールを確認してください。',
+            needsReply
+              ? 'メールが一致せず未読を消せませんでした。登録時のメールを確認してください。'
+              : '未読の解除に失敗しました。もう一度「一覧に戻る」を試してください。',
           );
         }
       } else if (!mail) {
         setHomeNotice(
-          '未読は残っています。詳細で登録メールを入力してから一覧に戻ると消えます。',
+          '未読は残っています。管理者コメントには登録メールを入力し、返信してから一覧に戻ると消えます。',
         );
       } else if (needsReply && !staffRepliedThisSession) {
         setHomeNotice(
@@ -714,13 +721,13 @@ export default function Home() {
 
   const markStaffNotificationRead = async (
     sampleId: number,
-    ownerEmail: string,
+    ownerEmail?: string,
   ): Promise<boolean> => {
-    const mail = ownerEmail.trim();
-    if (!mail) return false;
+    const mail = (ownerEmail ?? '').trim();
     try {
+      const qs = mail ? `?email=${encodeURIComponent(mail)}` : '';
       const res = await fetch(
-        `${API_BASE_URL}/samples/${sampleId}/notifications/read?email=${encodeURIComponent(mail)}`,
+        `${API_BASE_URL}/samples/${sampleId}/notifications/read${qs}`,
         { method: 'PATCH' },
       );
       if (!res.ok) return false;
@@ -968,7 +975,9 @@ export default function Home() {
     notifyUnread &&
     selectedRegistered?.status !== 'Fully Resolved' &&
     selectedRegistered?.staff_notify_kind === 'comment';
-  const notifyEmailDone = Boolean(email.trim());
+  // コメント未読だけメール必須。status／完了は戻るだけで消せる
+  const notifyNeedsEmail = notifyNeedsReply;
+  const notifyEmailDone = !notifyNeedsEmail || Boolean(email.trim());
   const notifyReplyDone = !notifyNeedsReply || staffRepliedThisSession;
   const notifyCanClear = notifyUnread && notifyEmailDone && notifyReplyDone;
   const leaveButtonLabel = notifyCanClear
@@ -1247,16 +1256,20 @@ export default function Home() {
                 未読を消す手順
               </p>
               <ol className="mt-2 space-y-1.5 text-sm text-amber-950">
-                <li
-                  className={
-                    notifyEmailDone ? 'font-medium line-through opacity-70' : 'font-semibold'
-                  }
-                >
-                  {notifyEmailDone ? '✓' : '1.'} 登録メールを入力する
-                  {!notifyEmailDone && (
-                    <span className="ml-1 font-normal">（下のメール欄）</span>
-                  )}
-                </li>
+                {notifyNeedsEmail && (
+                  <li
+                    className={
+                      notifyEmailDone
+                        ? 'font-medium line-through opacity-70'
+                        : 'font-semibold'
+                    }
+                  >
+                    {notifyEmailDone ? '✓' : '1.'} 登録メールを入力する
+                    {!notifyEmailDone && (
+                      <span className="ml-1 font-normal">（下のメール欄）</span>
+                    )}
+                  </li>
+                )}
                 {notifyNeedsReply && (
                   <li
                     className={
@@ -1265,7 +1278,7 @@ export default function Home() {
                         : 'font-semibold'
                     }
                   >
-                    {staffRepliedThisSession ? '✓' : '2.'}{' '}
+                    {staffRepliedThisSession ? '✓' : notifyNeedsEmail ? '2.' : '1.'}{' '}
                     対応履歴チャットで返信する
                   </li>
                 )}
@@ -1274,7 +1287,7 @@ export default function Home() {
                     notifyCanClear ? 'font-semibold' : 'font-medium'
                   }
                 >
-                  {notifyNeedsReply ? '3.' : '2.'} 「
+                  {notifyNeedsReply ? (notifyNeedsEmail ? '3.' : '2.') : '1.'} 「
                   {notifyCanClear ? '一覧に戻る（未読を消す）' : '一覧に戻る'}
                   」を押す
                   {notifyCanClear && (
@@ -1282,6 +1295,11 @@ export default function Home() {
                   )}
                 </li>
               </ol>
+              {!notifyNeedsReply && (
+                <p className="mt-2 text-xs text-amber-900">
+                  ステータス更新・完全対応済みの通知は、メールなしで一覧に戻るだけで消えます。
+                </p>
+              )}
             </div>
           )}
           <p className="text-sm text-gray-600">
@@ -1366,19 +1384,19 @@ export default function Home() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder={
-                        notifyUnread
+                        notifyNeedsEmail
                           ? '登録時メール（未読解除に必要）*'
                           : '登録時メール（保存・削除の確認用）*'
                       }
                       className={
-                        notifyUnread && !notifyEmailDone
+                        notifyNeedsEmail && !notifyEmailDone
                           ? 'rounded border-2 border-amber-500 bg-amber-50 px-3 py-2 ring-2 ring-amber-200'
                           : 'rounded border border-gray-300 px-3 py-2'
                       }
                     />
-                    {notifyUnread && !notifyEmailDone && (
+                    {notifyNeedsEmail && !notifyEmailDone && (
                       <span className="text-xs font-semibold text-amber-800">
-                        未読解除に必要です。登録時のメールを入力してください。
+                        コメント未読の解除に必要です。登録時のメールを入力してください。
                       </span>
                     )}
                   </label>
@@ -1421,24 +1439,6 @@ export default function Home() {
               <p className="text-gray-600">
                 完全対応済みのため、内容の編集・削除はできません。
               </p>
-              {notifyUnread && (
-                <label className="flex flex-col gap-1">
-                  <span className="font-semibold text-amber-900">
-                    登録時メール（未読解除に必要）
-                  </span>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="登録時のメールアドレス *"
-                    className={
-                      !notifyEmailDone
-                        ? 'rounded border-2 border-amber-500 bg-amber-50 px-3 py-2 ring-2 ring-amber-200'
-                        : 'rounded border border-gray-300 px-3 py-2'
-                    }
-                  />
-                </label>
-              )}
               {selectedRegistered.actual_actions && (
                 <p>
                   <span className="font-semibold text-gray-700">実際の結果: </span>

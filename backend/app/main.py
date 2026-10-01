@@ -710,17 +710,35 @@ def create_sample_message(
 )
 def mark_staff_notification_read(
     sample_id: int,
-    email: str = Query(..., description="登録時と同じメールアドレス"),
+    email: str | None = Query(
+        None,
+        description="登録時メール。コメント未読の解除時は必須。status／完了通知は省略可",
+    ),
     db: Session = Depends(get_db),
 ):
     """
-    スタッフが本人メールで未読通知を消す。
-    詳細から一覧に戻るときなど、フロントから明示的に呼ぶ。
+    スタッフ未読通知を消す。
+    - kind=comment かつ未完了: 本人メール照合が必須
+    - status 通知／完全対応済み: メールなしでも消せる（シードデータ等でメール不明でも戻れる）
     """
     sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    _verify_owner_email(sample, email)
+
+    needs_email = (
+        sample.staff_notify_kind == "comment"
+        and sample.status != "Fully Resolved"
+    )
+    if needs_email:
+        if not email or not str(email).strip():
+            raise HTTPException(
+                status_code=400,
+                detail="コメント未読の解除には登録時のメールアドレスが必要です。",
+            )
+        _verify_owner_email(sample, email)
+    elif email and str(email).strip():
+        # 任意入力された場合のみ照合（不一致なら拒否）
+        _verify_owner_email(sample, email)
 
     sample.staff_notify_unread = False
     sample.staff_notify_kind = None
