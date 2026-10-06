@@ -53,7 +53,7 @@ export default function TriageInputPanel({
           onErrorCodeChange={onErrorCodeChange}
           triageError={triageError}
           analyzing={analyzing}
-          inputClassName="rounded border border-gray-300 px-3 py-2"
+          inputClassName="rounded border border-gray-300 px-3 py-2.5 text-base font-bold"
           idleButtonLabel="AI で類似事例・一次回答を取得"
           buttonType="submit"
         />

@@ -177,6 +177,11 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [view, loadRegistered]);
 
+  // view 切替時は先頭へ（一覧下で開いた詳細が途中表示にならないようにする）
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [view]);
+
   const resetDetailWizardFields = () => {
     setDetailStep(1);
     setReproductionSteps(['', '', '']);
@@ -931,7 +936,7 @@ export default function Home() {
   const leaveButtonClass = btnBlack;
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 py-10">
+    <main className="mx-auto min-h-screen max-w-3xl px-4 py-10">
       <header className="mb-8">
         <h1 className="text-2xl font-bold">terravie トラブル報告フォーム</h1>
         <p className="mt-2 text-sm text-gray-600">
@@ -1110,14 +1115,14 @@ export default function Home() {
                 value={place}
                 onChange={(e) => setPlace(e.target.value)}
                 placeholder="発生場所 *"
-                className="rounded border border-gray-300 px-3 py-2"
+                className="rounded border border-gray-300 px-3 py-2.5 text-base"
               />
               <select
                 value={troubleType}
                 onChange={(e) =>
                   setTroubleType(e.target.value as TroubleType | '')
                 }
-                className="rounded border border-gray-300 px-3 py-2"
+                className="rounded border border-gray-300 px-3 py-2.5 text-base"
               >
                 <option value="">種別を選択 *</option>
                 <option value="customer">customer</option>
@@ -1128,7 +1133,7 @@ export default function Home() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="メールアドレス *"
-                className="rounded border border-gray-300 px-3 py-2"
+                className="rounded border border-gray-300 px-3 py-2.5 text-base"
               />
               <p className="text-xs text-gray-500">
                 発生日時は登録時に自動で記録されます。
@@ -1246,7 +1251,7 @@ export default function Home() {
                         invalidateStepsApproval();
                       }}
                       rows={3}
-                      className="rounded border border-gray-300 px-3 py-2"
+                      className="rounded border border-gray-300 px-3 py-2.5 text-base"
                     />
                   </label>
                   <label className="flex flex-col gap-1">
@@ -1260,7 +1265,7 @@ export default function Home() {
                         invalidateStepsApproval();
                       }}
                       rows={3}
-                      className="rounded border border-gray-300 px-3 py-2"
+                      className="rounded border border-gray-300 px-3 py-2.5 text-base"
                     />
                   </label>
                   <label className="flex flex-col gap-1">
@@ -1272,7 +1277,7 @@ export default function Home() {
                         setEditErrorCode(e.target.value);
                         invalidateStepsApproval();
                       }}
-                      className="rounded border border-gray-300 px-3 py-2"
+                      className="rounded border border-gray-300 px-3 py-2.5 text-base"
                     />
                   </label>
                   <input
@@ -1280,21 +1285,21 @@ export default function Home() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="報告者名 *"
-                    className="rounded border border-gray-300 px-3 py-2"
+                    className="rounded border border-gray-300 px-3 py-2.5 text-base"
                   />
                   <input
                     type="text"
                     value={place}
                     onChange={(e) => setPlace(e.target.value)}
                     placeholder="発生場所 *"
-                    className="rounded border border-gray-300 px-3 py-2"
+                    className="rounded border border-gray-300 px-3 py-2.5 text-base"
                   />
                   <select
                     value={troubleType}
                     onChange={(e) =>
                       setTroubleType(e.target.value as TroubleType | '')
                     }
-                    className="rounded border border-gray-300 px-3 py-2"
+                    className="rounded border border-gray-300 px-3 py-2.5 text-base"
                   >
                     <option value="">種別を選択 *</option>
                     <option value="customer">customer</option>

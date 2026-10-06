@@ -300,7 +300,7 @@ export default function AdminPage() {
   };
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-12">
+    <main className="mx-auto max-w-3xl px-4 py-12">
       <div className="mb-6 flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Administrator</h1>
         <Link href="/" className="text-sm text-gray-600 hover:underline">
@@ -325,7 +325,7 @@ export default function AdminPage() {
       <form onSubmit={handleSearch} className="mb-6 flex flex-col gap-2">
         <div className="flex flex-wrap gap-2">
           <input
-            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
+            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2.5 text-base"
             placeholder="キーワードで検索（例: 白浜 パンダ郎）"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
@@ -333,7 +333,7 @@ export default function AdminPage() {
           />
           {/* 管理者は全種別を見るので、customer / stuff で絞り込み可能 */}
           <select
-            className="rounded border border-gray-300 bg-white px-3 py-2"
+            className="rounded border border-gray-300 bg-white px-3 py-2.5 text-base"
             value={searchTroubleType}
             onChange={(e) => setSearchTroubleType(e.target.value)}
             aria-label="種別で絞り込み"
@@ -348,7 +348,7 @@ export default function AdminPage() {
             空文字を選ぶと「すべての状況」＝ status クエリを付けない。
           */}
           <select
-            className="rounded border border-gray-300 bg-white px-3 py-2"
+            className="rounded border border-gray-300 bg-white px-3 py-2.5 text-base"
             value={searchStatus}
             onChange={(e) => setSearchStatus(e.target.value)}
             aria-label="対応状況で絞り込み"
@@ -368,7 +368,7 @@ export default function AdminPage() {
           <input
             id="admin-date-from"
             type="date"
-            className="rounded border border-gray-300 px-3 py-2"
+            className="rounded border border-gray-300 px-3 py-2.5 text-base"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
             aria-label="開始日"
@@ -377,7 +377,7 @@ export default function AdminPage() {
           <input
             id="admin-date-to"
             type="date"
-            className="rounded border border-gray-300 px-3 py-2"
+            className="rounded border border-gray-300 px-3 py-2.5 text-base"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
             aria-label="終了日"
@@ -536,7 +536,7 @@ export default function AdminPage() {
                           onChange={(e) =>
                             updateResolveField(sample.id, 'cause', e.target.value)
                           }
-                          className="rounded border border-gray-300 bg-white px-3 py-2"
+                          className="rounded border border-gray-300 bg-white px-3 py-2.5 text-base"
                           placeholder="例: ゲート端末のカメラレンズの汚れ"
                         />
                       </label>
@@ -548,7 +548,7 @@ export default function AdminPage() {
                           onChange={(e) =>
                             updateResolveField(sample.id, 'response', e.target.value)
                           }
-                          className="rounded border border-gray-300 bg-white px-3 py-2"
+                          className="rounded border border-gray-300 bg-white px-3 py-2.5 text-base"
                           placeholder="例: 遠隔で状況確認し、清掃手順を案内"
                         />
                       </label>
@@ -560,7 +560,7 @@ export default function AdminPage() {
                           onChange={(e) =>
                             updateResolveField(sample.id, 'onsiteFix', e.target.value)
                           }
-                          className="rounded border border-gray-300 bg-white px-3 py-2"
+                          className="rounded border border-gray-300 bg-white px-3 py-2.5 text-base"
                           placeholder="例: レンズを拭いて再スキャンし、正常読取を確認"
                         />
                       </label>

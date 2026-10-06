@@ -36,7 +36,7 @@ export default function DraftListSection({
           value={draftKeyword}
           onChange={(e) => onDraftKeywordChange(e.target.value)}
           placeholder="キーワードで検索"
-          className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+          className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2.5 text-base"
         />
         <button type="submit" className={btnBlack}>
           検索

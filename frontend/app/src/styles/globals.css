@@ -1,1 +1,5 @@
 @import 'tailwindcss';
+
+html {
+  font-size: 18px; /* 既定16px → 約1.125倍。text-* / spacing の rem が全体で拡大 */
+}

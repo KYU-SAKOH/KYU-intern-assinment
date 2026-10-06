@@ -106,7 +106,7 @@ export default function DetailWizard({
             onClick={() => onSelectStep(step)}
             className={`rounded px-3 py-1.5 font-medium ${
               detailStep === step
-                ? 'bg-gray-900 text-white'
+                ? 'bg-amber-400 text-black'
                 : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
             }`}
           >
@@ -155,7 +155,7 @@ export default function DetailWizard({
                       index,
                       reproductionSteps.length,
                     )}
-                    className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2"
+                    className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2.5 text-base"
                   />
                   <div className="flex shrink-0 items-center gap-2 pt-2">
                     <button
@@ -255,7 +255,7 @@ export default function DetailWizard({
               <select
                 value={reproductionRate}
                 onChange={(e) => onReproductionRateChange(e.target.value)}
-                className={`rounded border border-gray-300 px-3 py-2 ${
+                className={`rounded border border-gray-300 px-3 py-2.5 text-base ${
                   REPRODUCTION_RATE_OPTION_CLASS[reproductionRate] ?? 'bg-white'
                 }`}
               >
@@ -276,7 +276,7 @@ export default function DetailWizard({
               <select
                 value={severity}
                 onChange={(e) => onSeverityChange(e.target.value)}
-                className={`rounded border border-gray-300 px-3 py-2 ${
+                className={`rounded border border-gray-300 px-3 py-2.5 text-base ${
                   SEVERITY_OPTION_CLASS[severity] ?? 'bg-white'
                 }`}
               >
@@ -301,7 +301,7 @@ export default function DetailWizard({
                   const file = e.target.files?.[0] ?? null;
                   onScreenshotFile(file);
                 }}
-                className="rounded border border-gray-300 px-3 py-2"
+                className="rounded border border-gray-300 px-3 py-2.5 text-base"
               />
               {uploadingScreenshot && (
                 <span className="text-xs text-gray-500">アップロード中…</span>
@@ -319,7 +319,7 @@ export default function DetailWizard({
                 onChange={(e) => onDeviceInfoChange(e.target.value)}
                 rows={3}
                 placeholder="機種名・OS・アプリバージョンなど"
-                className="rounded border border-gray-300 px-3 py-2"
+                className="rounded border border-gray-300 px-3 py-2.5 text-base"
               />
             </label>
           </>

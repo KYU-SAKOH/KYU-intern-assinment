@@ -104,21 +104,21 @@ export default function RegisteredListSection({
             value={registeredKeyword}
             onChange={(e) => onKeywordChange(e.target.value)}
             placeholder="キーワードで検索"
-            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2.5 text-base"
           />
           <input
             type="email"
             value={registeredEmail}
             onChange={(e) => onEmailChange(e.target.value)}
             placeholder="登録時メールで絞り込み"
-            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2.5 text-base"
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={registeredStatus}
             onChange={(e) => onStatusChange(e.target.value)}
-            className="rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+            className="rounded border border-gray-300 bg-white px-3 py-2.5 text-base"
             aria-label="対応状況で絞り込み"
           >
             <option value="">すべての状況</option>
@@ -136,7 +136,7 @@ export default function RegisteredListSection({
             type="date"
             value={registeredDateFrom}
             onChange={(e) => onDateFromChange(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-2 text-sm"
+            className="rounded border border-gray-300 px-3 py-2.5 text-base"
           />
           <span className="text-sm text-gray-500">〜</span>
           <input
@@ -144,7 +144,7 @@ export default function RegisteredListSection({
             type="date"
             value={registeredDateTo}
             onChange={(e) => onDateToChange(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-2 text-sm"
+            className="rounded border border-gray-300 px-3 py-2.5 text-base"
           />
           <button type="submit" className={btnBlack}>
             検索
