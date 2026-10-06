@@ -1,5 +1,5 @@
 """
-一度きり: 既存 samples / messages を全削除し、完全対応済みデモ 7 件を投入する。
+一度きり: 既存 samples / messages を全削除し、完全対応済みデモ 10 件を投入する。
 
 実行例（backend コンテナ内）:
   uv run python seed_demo_resolved.py
@@ -31,6 +31,22 @@ def _resolve_msg(cause: str, response: str, onsite: str) -> str:
         f"【対応内容】\n{response}\n\n"
         f"【現場での解決方法】\n{onsite}"
     )
+
+
+def _messages_for_demo(demo: dict) -> list[dict]:
+    """デモ定義から投入用メッセージ一覧を返す。
+
+    messages があればそれを使い、なければ staff_body + 解決文の2通。
+    """
+    if "messages" in demo:
+        return demo["messages"]
+    return [
+        {"author_role": "staff", "body": demo["staff_body"]},
+        {
+            "author_role": "admin",
+            "body": _resolve_msg(demo["cause"], demo["response"], demo["onsite"]),
+        },
+    ]
 
 
 DEMOS: list[dict] = [
@@ -174,6 +190,153 @@ DEMOS: list[dict] = [
         "response": "同期キューを確認し遅延を解消。端末での手動同期手順を案内した。",
         "onsite": "アプリの手動同期を実行し、画面を再読込して最新予約が表示されることを確認する。",
     },
+    {
+        "name": "チケット窓口 H",
+        "place": "総合案内",
+        "trouble_type": "customer",
+        "expected": "ログイン後に対象チケットが一覧に表示される",
+        "actual": "ログインはできるが、チケット情報が表示されない",
+        "error_code": "TKT-ACCT-MISMATCH",
+        "steps": [
+            "アプリにログインする",
+            "チケット一覧画面を開く",
+            "対象チケットが表示されないことを確認する",
+            "別アカウントでログインし直して表示を確認する",
+        ],
+        "rate": "sometimes",
+        "severity": "medium",
+        "cause": "チケットが現在ログイン中のアカウントとは別のアカウントに紐づいていた",
+        "response": "紐づけ先アカウント（user-a@example.com）を案内し、当該アカウントでの再ログインを依頼した。",
+        "onsite": "案内されたアカウントでログインし直し、チケット一覧に対象が表示されることを確認する。",
+        "messages": [
+            {
+                "author_role": "staff",
+                "body": (
+                    "ログインは正常にできましたが、チケット情報が表示されません。"
+                    "現在のアカウントにチケット情報が紐づいているか、ご確認いただけますでしょうか。"
+                ),
+            },
+            {
+                "author_role": "admin",
+                "body": (
+                    "確認したところ、チケットは登録されていますが、"
+                    "現在ログインされているアカウントとは別のアカウントに紐づいていました。"
+                ),
+            },
+            {
+                "author_role": "staff",
+                "body": "ありがとうございます。どのアカウントでログインすれば確認できますか？",
+            },
+            {
+                "author_role": "admin",
+                "body": (
+                    "「user-a@example.com」のアカウントに紐づいています。"
+                    "こちらのアカウントでログインしてご確認ください。"
+                ),
+            },
+            {
+                "author_role": "staff",
+                "body": (
+                    "対象のアカウントでログインし直したところ、チケットが表示されました。"
+                    "ありがとうございます。"
+                ),
+            },
+        ],
+    },
+    {
+        "name": "チケット窓口 I",
+        "place": "総合案内",
+        "trouble_type": "customer",
+        "expected": "ログイン後に対象チケットが一覧に表示される",
+        "actual": "ログイン後にチケット一覧を確認しても、対象のチケットが表示されない",
+        "error_code": "TKT-PERM-DENIED",
+        "steps": [
+            "アプリにログインする",
+            "チケット一覧画面を開く",
+            "対象チケットが表示されないことを確認する",
+            "権限付与後に再ログインして表示を確認する",
+        ],
+        "rate": "sometimes",
+        "severity": "medium",
+        "cause": "ログイン中アカウントに対象チケットの閲覧権限が設定されていなかった",
+        "response": "閲覧権限を付与し、ログアウト後の再ログインを案内した。",
+        "onsite": "一度ログアウトして再度ログインし、チケット一覧に対象が表示されることを確認する。",
+        "messages": [
+            {
+                "author_role": "staff",
+                "body": (
+                    "ログイン後、チケット一覧を確認しましたが、対象のチケットが表示されません。"
+                    "表示条件や権限設定など、確認すべき点があれば教えてください。"
+                ),
+            },
+            {
+                "author_role": "admin",
+                "body": (
+                    "確認したところ、現在ログインされているアカウントには"
+                    "対象チケットを閲覧する権限が設定されていませんでした。"
+                ),
+            },
+            {
+                "author_role": "staff",
+                "body": "閲覧権限を付与していただくことは可能でしょうか？",
+            },
+            {
+                "author_role": "admin",
+                "body": "権限を付与しました。一度ログアウトして、再度ログインをお願いします。",
+            },
+            {
+                "author_role": "staff",
+                "body": "再ログインしたところ、チケットが表示されました。ありがとうございます。",
+            },
+        ],
+    },
+    {
+        "name": "チケット窓口 J",
+        "place": "総合案内",
+        "trouble_type": "customer",
+        "expected": "ログイン後に対象チケットが一覧に表示される",
+        "actual": "ログインはできるが、チケット情報が0件となっている",
+        "error_code": "TKT-UNLINKED",
+        "steps": [
+            "アプリにログインする",
+            "チケット一覧画面を開く",
+            "件数が0件であることを確認する",
+            "紐づけ後に画面を再読み込みして表示を確認する",
+        ],
+        "rate": "sometimes",
+        "severity": "medium",
+        "cause": "チケットは登録されていたが、現在のアカウントへの紐づけがされていなかった",
+        "response": "対象アカウントへの紐づけを実施し、画面の再読み込みを案内した。",
+        "onsite": "画面を再読み込みし、チケット一覧に対象が表示されることを確認する。",
+        "messages": [
+            {
+                "author_role": "staff",
+                "body": (
+                    "ログイン自体は問題ありませんが、チケット情報が0件となっています。"
+                    "データが未登録なのか確認をお願いします。"
+                ),
+            },
+            {
+                "author_role": "admin",
+                "body": (
+                    "確認したところ、チケット自体は登録されていますが、"
+                    "現在のアカウントへの紐づけがされていませんでした。"
+                ),
+            },
+            {
+                "author_role": "staff",
+                "body": "対象アカウントへの紐づけをお願いします。",
+            },
+            {
+                "author_role": "admin",
+                "body": "紐づけを行いました。画面を再読み込みしてご確認ください。",
+            },
+            {
+                "author_role": "staff",
+                "body": "確認したところ、チケットが表示されました。ありがとうございます。",
+            },
+        ],
+    },
 ]
 
 
@@ -222,20 +385,15 @@ def main() -> None:
             db.add(sample)
             db.flush()
 
-            staff_msg = SampleMessageModel(
-                sample_id=sample.id,
-                author_role="staff",
-                body=demo["staff_body"],
-                created_at=sample.date + timedelta(minutes=5),
-            )
-            admin_msg = SampleMessageModel(
-                sample_id=sample.id,
-                author_role="admin",
-                body=_resolve_msg(demo["cause"], demo["response"], demo["onsite"]),
-                created_at=sample.date + timedelta(hours=2),
-            )
-            db.add(staff_msg)
-            db.add(admin_msg)
+            for n, msg in enumerate(_messages_for_demo(demo)):
+                db.add(
+                    SampleMessageModel(
+                        sample_id=sample.id,
+                        author_role=msg["author_role"],
+                        body=msg["body"],
+                        created_at=sample.date + timedelta(minutes=5 * (n + 1)),
+                    )
+                )
             print(f"seeded #{sample.id} {sample.name} ({demo['error_code']})")
 
         db.commit()

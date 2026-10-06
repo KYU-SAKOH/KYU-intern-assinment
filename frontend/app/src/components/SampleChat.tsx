@@ -7,8 +7,8 @@ import { API_BASE_URL, readApiError } from '@/lib/api';
 /**
  * 問い合わせごとのチャット形式の対応履歴
  *
- * mode=staff … 園館スタッフ（投稿時に登録メールが必要）
- * mode=admin … 管理者（メール不要）
+ * mode=staff … 園館スタッフ
+ * mode=admin … 管理者
  *
  * 親画面（トップ／管理者）から sampleId と mode を受け取り、
  * GET/POST /samples/{id}/messages を呼ぶ。
@@ -27,8 +27,6 @@ type ChatMessage = {
 type SampleChatProps = {
   sampleId: number;
   mode: AuthorRole;
-  /** staff 投稿時に使う登録メール（親フォームと共有） */
-  ownerEmail?: string;
   /** true のとき履歴閲覧のみ（送信フォームを出さない） */
   readOnly?: boolean;
   /** staff 送信成功時（未読解除フロー用） */
@@ -40,7 +38,6 @@ type SampleChatProps = {
 export default function SampleChat({
   sampleId,
   mode,
-  ownerEmail = '',
   readOnly = false,
   onStaffMessageSent,
   highlightReply = false,
@@ -80,10 +77,6 @@ export default function SampleChat({
       setError('メッセージを入力してください。');
       return;
     }
-    if (mode === 'staff' && !ownerEmail.trim()) {
-      setError('メッセージ送信には登録時のメールアドレスが必要です。');
-      return;
-    }
 
     setSending(true);
     try {
@@ -93,7 +86,6 @@ export default function SampleChat({
         body: JSON.stringify({
           author_role: mode,
           body: body.trim(),
-          email: mode === 'staff' ? ownerEmail.trim() : null,
         }),
       });
       if (!res.ok) {
@@ -175,11 +167,6 @@ export default function SampleChat({
         </div>
       ) : (
         <form onSubmit={handleSend} className="border-t border-gray-200 px-3 py-3">
-          {mode === 'staff' && !ownerEmail.trim() && (
-            <p className="mb-2 text-xs text-amber-700">
-              送信するには、上の「登録時メール」を入力してください。
-            </p>
-          )}
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}

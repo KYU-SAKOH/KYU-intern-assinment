@@ -188,18 +188,6 @@ def _purge_expired_drafts(db: Session) -> None:
     db.commit()
 
 
-def _verify_owner_email(db_sample: SampleModel, email: str) -> None:
-    """
-    登録時のメールと一致するか確認する。
-    一致しなければ 403（Forbidden）を返す → 他人のデータを勝手に更新・削除できない。
-    """
-    if _normalize_email(email) != _normalize_email(db_sample.email):
-        raise HTTPException(
-            status_code=403,
-            detail="メールアドレスが一致しません。登録時と同じメールアドレスが必要です。",
-        )
-
-
 @app.get("/samples", response_model=list[SampleResponse])
 def get_samples(
     # Query(...) … URL の ?q=...&trouble_type=... のようなクエリパラメータ
@@ -502,15 +490,13 @@ def update_sample(
     """
     問い合わせを全項目で上書きする（PUT /samples/{id}）。
 
-    email は「本人確認」にだけ使い、DB 上のメールは変更しない。
-    （data.pop("email") で更新対象から外している）
+    登録メールは変更しない（リクエストに email は含めない）。
     """
     db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not db_sample:
         raise HTTPException(status_code=404, detail="Sample not found")
 
     data = sample.model_dump()
-    _verify_owner_email(db_sample, data.pop("email"))
     data = _serialize_steps_in_payload(data)
 
     # 送られてきた各フィールドを ORM オブジェクトにセット
@@ -536,10 +522,6 @@ def partial_update_sample(
         raise HTTPException(status_code=404, detail="Sample not found")
 
     data = sample.model_dump(exclude_unset=True)
-    email = data.pop("email", None)
-    if email is None:
-        raise HTTPException(status_code=400, detail="email is required")
-    _verify_owner_email(db_sample, email)
     data = _serialize_steps_in_payload(data)
 
     for key, value in data.items():
@@ -605,20 +587,14 @@ def admin_delete_sample(sample_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/samples/{sample_id}", status_code=204)
-def delete_sample(
-    sample_id: int,
-    # ボディではなくクエリ ?email=... で受け取る（フロントの DELETE 実装に合わせている）
-    email: str = Query(..., description="登録時と同じメールアドレス"),
-    db: Session = Depends(get_db),
-):
+def delete_sample(sample_id: int, db: Session = Depends(get_db)):
     """
-    問い合わせを削除する（DELETE /samples/{id}?email=...）。
+    問い合わせを削除する（DELETE /samples/{id}）。
     204 = No Content（成功したが返すボディは無い）。
     """
     sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    _verify_owner_email(sample, email)
     db.delete(sample)
     db.commit()
 
@@ -654,8 +630,7 @@ def create_sample_message(
 ):
     """
     対応履歴にメッセージを追加する。
-    - staff: 登録時メールの照合が必須
-    - admin: メール不要（デモ用管理者画面）
+    staff / admin とも登録メールの照合はしない。
     """
     sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not sample:
@@ -675,12 +650,6 @@ def create_sample_message(
                 status_code=400,
                 detail="完全対応済みの問い合わせにはスタッフからメッセージを送れません。",
             )
-        if not body.email or not body.email.strip():
-            raise HTTPException(
-                status_code=400, detail="スタッフ投稿には email が必要です。"
-            )
-        _verify_owner_email(sample, body.email)
-
     msg = SampleMessageModel(
         sample_id=sample_id,
         author_role=body.author_role,
@@ -710,35 +679,12 @@ def create_sample_message(
 )
 def mark_staff_notification_read(
     sample_id: int,
-    email: str | None = Query(
-        None,
-        description="登録時メール。コメント未読の解除時は必須。status／完了通知は省略可",
-    ),
     db: Session = Depends(get_db),
 ):
-    """
-    スタッフ未読通知を消す。
-    - kind=comment かつ未完了: 本人メール照合が必須
-    - status 通知／完全対応済み: メールなしでも消せる（シードデータ等でメール不明でも戻れる）
-    """
+    """スタッフ未読通知を消す。登録メールの照合はしない。"""
     sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-
-    needs_email = (
-        sample.staff_notify_kind == "comment"
-        and sample.status != "Fully Resolved"
-    )
-    if needs_email:
-        if not email or not str(email).strip():
-            raise HTTPException(
-                status_code=400,
-                detail="コメント未読の解除には登録時のメールアドレスが必要です。",
-            )
-        _verify_owner_email(sample, email)
-    elif email and str(email).strip():
-        # 任意入力された場合のみ照合（不一致なら拒否）
-        _verify_owner_email(sample, email)
 
     sample.staff_notify_unread = False
     sample.staff_notify_kind = None

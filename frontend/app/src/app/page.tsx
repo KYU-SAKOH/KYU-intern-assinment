@@ -489,31 +489,19 @@ export default function Home() {
     setHomeNotice('');
 
     if (sample?.staff_notify_unread) {
-      const mail = email.trim();
       const fullyResolved = sample.status === 'Fully Resolved';
-      // コメント未読のみメール＋返信が必要。status／完了は戻るだけで消せる
+      // コメント未読のみ返信が必要。status／完了は戻るだけで消せる
       const needsReply =
         !fullyResolved && sample.staff_notify_kind === 'comment';
-      const canClear = needsReply
-        ? Boolean(mail) && staffRepliedThisSession
-        : true;
+      const canClear = needsReply ? staffRepliedThisSession : true;
 
       if (canClear) {
-        const cleared = await markStaffNotificationRead(
-          sample.id,
-          needsReply ? mail : mail || undefined,
-        );
+        const cleared = await markStaffNotificationRead(sample.id);
         if (!cleared) {
           setHomeNotice(
-            needsReply
-              ? 'メールが一致せず未読を消せませんでした。登録時のメールを確認してください。'
-              : '未読の解除に失敗しました。もう一度「一覧に戻る」を試してください。',
+            '未読の解除に失敗しました。もう一度「一覧に戻る」を試してください。',
           );
         }
-      } else if (!mail) {
-        setHomeNotice(
-          '未読は残っています。管理者コメントには登録メールを入力し、返信してから一覧に戻ると消えます。',
-        );
       } else if (needsReply && !staffRepliedThisSession) {
         setHomeNotice(
           '未読は残っています。管理者コメントにはチャットで返信してから一覧に戻ると消えます。',
@@ -721,13 +709,10 @@ export default function Home() {
 
   const markStaffNotificationRead = async (
     sampleId: number,
-    ownerEmail?: string,
   ): Promise<boolean> => {
-    const mail = (ownerEmail ?? '').trim();
     try {
-      const qs = mail ? `?email=${encodeURIComponent(mail)}` : '';
       const res = await fetch(
-        `${API_BASE_URL}/samples/${sampleId}/notifications/read${qs}`,
+        `${API_BASE_URL}/samples/${sampleId}/notifications/read`,
         { method: 'PATCH' },
       );
       if (!res.ok) return false;
@@ -773,7 +758,6 @@ export default function Home() {
     setName(sample.name);
     setPlace(sample.place);
     setTroubleType(sample.trouble_type === 'stuff' ? 'stuff' : 'customer');
-    setEmail('');
     setStaffRepliedThisSession(false);
     setHomeNotice('');
     const existingSteps =
@@ -833,17 +817,10 @@ export default function Home() {
       !name.trim() ||
       !place.trim() ||
       !troubleType ||
-      !email.trim() ||
       !editExpected.trim() ||
       !editActual.trim()
     ) {
-      setActionError(
-        '報告者名・場所・種別・メール・期待結果・実際の結果は必須です。',
-      );
-      return;
-    }
-    if (!isValidEmail(email)) {
-      setActionError('メールアドレスの形式が正しくありません。');
+      setActionError('報告者名・場所・種別・期待結果・実際の結果は必須です。');
       return;
     }
     if (!stepsAiApproved) {
@@ -873,7 +850,6 @@ export default function Home() {
             place: place.trim(),
             trouble_type: troubleType,
             trouble_detail: selectedRegistered.trouble_detail ?? '',
-            email: email.trim(),
             expected_actions: editExpected.trim(),
             actual_actions: editActual.trim(),
             error_code: editErrorCode.trim() || null,
@@ -904,14 +880,6 @@ export default function Home() {
     if (!selectedRegistered || !canEditRegisteredStatus(selectedRegistered.status)) {
       return;
     }
-    if (!email.trim()) {
-      setActionError('削除には登録時のメールアドレスが必要です。');
-      return;
-    }
-    if (!isValidEmail(email)) {
-      setActionError('メールアドレスの形式が正しくありません。');
-      return;
-    }
     if (
       !window.confirm(
         `サンプル #${selectedRegistered.id} を削除します。よろしいですか？`,
@@ -924,7 +892,7 @@ export default function Home() {
     setActionError('');
     try {
       const res = await fetch(
-        `${API_BASE_URL}/samples/${selectedRegistered.id}?email=${encodeURIComponent(email.trim())}`,
+        `${API_BASE_URL}/samples/${selectedRegistered.id}`,
         { method: 'DELETE' },
       );
       if (!res.ok) {
@@ -975,11 +943,9 @@ export default function Home() {
     notifyUnread &&
     selectedRegistered?.status !== 'Fully Resolved' &&
     selectedRegistered?.staff_notify_kind === 'comment';
-  // コメント未読だけメール必須。status／完了は戻るだけで消せる
-  const notifyNeedsEmail = notifyNeedsReply;
-  const notifyEmailDone = !notifyNeedsEmail || Boolean(email.trim());
+  // コメント未読は返信後に消せる。status／完了は戻るだけで消せる
   const notifyReplyDone = !notifyNeedsReply || staffRepliedThisSession;
-  const notifyCanClear = notifyUnread && notifyEmailDone && notifyReplyDone;
+  const notifyCanClear = notifyUnread && notifyReplyDone;
   const leaveButtonLabel = notifyCanClear
     ? '一覧に戻る（未読を消す）'
     : '一覧に戻る';
@@ -1256,20 +1222,6 @@ export default function Home() {
                 未読を消す手順
               </p>
               <ol className="mt-2 space-y-1.5 text-sm text-amber-950">
-                {notifyNeedsEmail && (
-                  <li
-                    className={
-                      notifyEmailDone
-                        ? 'font-medium line-through opacity-70'
-                        : 'font-semibold'
-                    }
-                  >
-                    {notifyEmailDone ? '✓' : '1.'} 登録メールを入力する
-                    {!notifyEmailDone && (
-                      <span className="ml-1 font-normal">（下のメール欄）</span>
-                    )}
-                  </li>
-                )}
                 {notifyNeedsReply && (
                   <li
                     className={
@@ -1278,7 +1230,7 @@ export default function Home() {
                         : 'font-semibold'
                     }
                   >
-                    {staffRepliedThisSession ? '✓' : notifyNeedsEmail ? '2.' : '1.'}{' '}
+                    {staffRepliedThisSession ? '✓' : '1.'}{' '}
                     対応履歴チャットで返信する
                   </li>
                 )}
@@ -1287,7 +1239,7 @@ export default function Home() {
                     notifyCanClear ? 'font-semibold' : 'font-medium'
                   }
                 >
-                  {notifyNeedsReply ? (notifyNeedsEmail ? '3.' : '2.') : '1.'} 「
+                  {notifyNeedsReply ? '2.' : '1.'} 「
                   {notifyCanClear ? '一覧に戻る（未読を消す）' : '一覧に戻る'}
                   」を押す
                   {notifyCanClear && (
@@ -1297,7 +1249,7 @@ export default function Home() {
               </ol>
               {!notifyNeedsReply && (
                 <p className="mt-2 text-xs text-amber-900">
-                  ステータス更新・完全対応済みの通知は、メールなしで一覧に戻るだけで消えます。
+                  ステータス更新・完全対応済みの通知は、一覧に戻るだけで消えます。
                 </p>
               )}
             </div>
@@ -1378,28 +1330,6 @@ export default function Home() {
                     <option value="customer">customer</option>
                     <option value="stuff">stuff</option>
                   </select>
-                  <label className="flex flex-col gap-1">
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder={
-                        notifyNeedsEmail
-                          ? '登録時メール（未読解除に必要）*'
-                          : '登録時メール（保存・削除の確認用）*'
-                      }
-                      className={
-                        notifyNeedsEmail && !notifyEmailDone
-                          ? 'rounded border-2 border-amber-500 bg-amber-50 px-3 py-2 ring-2 ring-amber-200'
-                          : 'rounded border border-gray-300 px-3 py-2'
-                      }
-                    />
-                    {notifyNeedsEmail && !notifyEmailDone && (
-                      <span className="text-xs font-semibold text-amber-800">
-                        コメント未読の解除に必要です。登録時のメールを入力してください。
-                      </span>
-                    )}
-                  </label>
                 </>
               }
               submitLabel="保存"
@@ -1516,11 +1446,8 @@ export default function Home() {
               <SampleChat
                 sampleId={selectedRegistered.id}
                 mode="staff"
-                ownerEmail={email}
                 onStaffMessageSent={() => setStaffRepliedThisSession(true)}
-                highlightReply={
-                  notifyNeedsReply && notifyEmailDone && !staffRepliedThisSession
-                }
+                highlightReply={notifyNeedsReply && !staffRepliedThisSession}
               />
             ) : (
               <SampleChat

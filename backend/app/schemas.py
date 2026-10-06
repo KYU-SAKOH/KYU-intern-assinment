@@ -144,7 +144,7 @@ class SampleFinalize(BaseModel):
 class SampleUpdate(BaseModel):
     """
     PUT /samples/{id} 用。
-    全フィールドを送り直す前提。email は照合用で、サーバ側では変更しない。
+    全フィールドを送り直す前提。登録メールは変更しない。
     status / admin_comment は管理者専用なのでここには含めない。
     """
 
@@ -153,7 +153,6 @@ class SampleUpdate(BaseModel):
     place: str
     trouble_type: str
     trouble_detail: str = ""
-    email: str = Field(min_length=3, max_length=255)
     expected_actions: str | None = None
     actual_actions: str | None = None
     error_code: str | None = None
@@ -176,13 +175,12 @@ class SampleUpdate(BaseModel):
 class SamplePartialUpdate(BaseModel):
     """
     PATCH /samples/{id} 用（登録者向け）。
-    送ったフィールドだけ更新する。email だけは必ず必要（本人確認）。
+    送ったフィールドだけ更新する。登録メールは変更しない。
 
     例（部分更新）:
-      { "email": "a@example.com", "place": "ゲート1" }
+      { "place": "ゲート1" }
     """
 
-    email: str = Field(min_length=3, max_length=255)
     name: str | None = None
     date: datetime | None = None
     place: str | None = None
@@ -310,8 +308,6 @@ class SampleMessageCreate(BaseModel):
 
     author_role: MessageAuthorRole
     body: str = Field(min_length=1)
-    # staff 投稿時は登録時メールが必須。admin は不要。
-    email: str | None = None
 
 
 class SampleMessageResponse(BaseModel):

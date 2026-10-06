@@ -136,8 +136,6 @@ export interface components {
             place: string;
             trouble_type: string;
             trouble_detail: string;
-            /** Email（照合用） */
-            email: string;
             expected_actions?: string | null;
             actual_actions?: string | null;
             error_code?: string | null;
@@ -145,8 +143,6 @@ export interface components {
         };
         /** SamplePartialUpdate */
         SamplePartialUpdate: {
-            /** Email（照合用・必須） */
-            email: string;
             /** Name */
             name?: string | null;
             /**
@@ -174,7 +170,6 @@ export interface components {
         SampleMessageCreate: {
             author_role: 'staff' | 'admin';
             body: string;
-            email?: string | null;
         };
         /** SampleMessageResponse */
         SampleMessageResponse: {
@@ -397,10 +392,7 @@ export interface operations {
     // ===== 追加ここまで =====
     delete_sample_samples__sample_id__delete: {
         parameters: {
-            query: {
-                /** @description 登録時と同じメールアドレス */
-                email: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 sample_id: number;
