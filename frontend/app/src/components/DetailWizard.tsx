@@ -2,9 +2,12 @@
 
 import type { FormEvent, ReactNode } from 'react';
 
+import { btnBlack, btnBlue, btnGreen, btnWhite } from '@/lib/buttonStyles';
 import {
   REPRODUCTION_RATE_LABELS,
+  REPRODUCTION_RATE_OPTION_CLASS,
   SEVERITY_LABELS,
+  SEVERITY_OPTION_CLASS,
   stepRowLabel,
   stepRowPlaceholder,
 } from '@/lib/reproductionStepsUi';
@@ -188,7 +191,7 @@ export default function DetailWizard({
                 type="button"
                 onClick={onAddStep}
                 disabled={reproductionSteps.length >= 15}
-                className="rounded border border-gray-400 bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                className={btnWhite}
               >
                 手順を追加
               </button>
@@ -196,7 +199,7 @@ export default function DetailWizard({
                 type="button"
                 onClick={onRunAssist}
                 disabled={assistLoading}
-                className="rounded bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                className={btnBlue}
               >
                 {assistLoading ? 'AIチェック中…' : 'AIにチェックしてもらう'}
               </button>
@@ -252,11 +255,17 @@ export default function DetailWizard({
               <select
                 value={reproductionRate}
                 onChange={(e) => onReproductionRateChange(e.target.value)}
-                className="rounded border border-gray-300 px-3 py-2"
+                className={`rounded border border-gray-300 px-3 py-2 ${
+                  REPRODUCTION_RATE_OPTION_CLASS[reproductionRate] ?? 'bg-white'
+                }`}
               >
                 <option value="">未選択</option>
                 {Object.entries(REPRODUCTION_RATE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
+                  <option
+                    key={value}
+                    value={value}
+                    className={REPRODUCTION_RATE_OPTION_CLASS[value]}
+                  >
                     {label}
                   </option>
                 ))}
@@ -267,11 +276,17 @@ export default function DetailWizard({
               <select
                 value={severity}
                 onChange={(e) => onSeverityChange(e.target.value)}
-                className="rounded border border-gray-300 px-3 py-2"
+                className={`rounded border border-gray-300 px-3 py-2 ${
+                  SEVERITY_OPTION_CLASS[severity] ?? 'bg-white'
+                }`}
               >
                 <option value="">未選択</option>
                 {Object.entries(SEVERITY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
+                  <option
+                    key={value}
+                    value={value}
+                    className={SEVERITY_OPTION_CLASS[value]}
+                  >
                     {label}
                   </option>
                 ))}
@@ -314,11 +329,7 @@ export default function DetailWizard({
 
         <div className="mt-2 flex flex-wrap gap-3">
           {detailStep > 1 && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex min-h-12 items-center rounded-lg bg-sky-600 px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-sky-700"
-            >
+            <button type="button" onClick={onBack} className={btnBlack}>
               戻る
             </button>
           )}
@@ -326,16 +337,12 @@ export default function DetailWizard({
             <button
               type="submit"
               disabled={detailStep === 2 && !stepsAiApproved}
-              className="rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+              className={btnBlue}
             >
               次へ
             </button>
           ) : (
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
-            >
+            <button type="submit" disabled={submitting} className={btnGreen}>
               {submitting ? submittingLabel : submitLabel}
             </button>
           )}

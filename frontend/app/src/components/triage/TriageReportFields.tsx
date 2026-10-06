@@ -1,5 +1,7 @@
 'use client';
 
+import { btnBlue } from '@/lib/buttonStyles';
+
 /**
  * トリアージの報告欄（報告者名・期待結果・実際の結果・エラーコード）
  *
@@ -92,7 +94,7 @@ export default function TriageReportFields({
         type={buttonType}
         disabled={analyzing}
         onClick={onButtonClick}
-        className="rounded bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+        className={btnBlue}
       >
         {analyzing ? 'AI 分析中…' : idleButtonLabel}
       </button>

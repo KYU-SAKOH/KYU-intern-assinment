@@ -1,5 +1,6 @@
 'use client';
 
+import { btnBlue, btnGreen } from '@/lib/buttonStyles';
 import type { SimilarSample, TriageResult } from '@/types/samples';
 
 import TriageReportFields from './TriageReportFields';
@@ -47,9 +48,17 @@ export default function TriageResultPanel({
 }: TriageResultPanelProps) {
   return (
     <section className="space-y-6">
-      <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-4">
-        <h2 className="font-semibold text-emerald-950">AI 一次回答</h2>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-emerald-950">
+      <div className="flex flex-wrap gap-3">
+        <button type="button" onClick={onResolved} className={btnGreen}>
+          解決済み
+        </button>
+        <button type="button" onClick={onUnresolved} className={btnBlue}>
+          未解決
+        </button>
+      </div>
+      <div className="rounded bg-gray-900 px-4 py-4 text-white">
+        <h2 className="font-semibold text-white">AI 一次回答</h2>
+        <p className="mt-2 whitespace-pre-wrap text-base text-white">
           {triage.initial_response}
         </p>
       </div>
@@ -107,22 +116,6 @@ export default function TriageResultPanel({
           buttonType="button"
           onButtonClick={onRerunTriage}
         />
-      </div>
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={onResolved}
-          className="rounded border border-emerald-600 bg-white px-4 py-3 text-sm font-semibold text-emerald-800 hover:bg-emerald-50"
-        >
-          解決済み
-        </button>
-        <button
-          type="button"
-          onClick={onUnresolved}
-          className="rounded bg-amber-600 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-700"
-        >
-          未解決
-        </button>
       </div>
     </section>
   );

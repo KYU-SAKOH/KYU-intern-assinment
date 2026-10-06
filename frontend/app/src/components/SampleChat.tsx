@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { API_BASE_URL, readApiError } from '@/lib/api';
+import { btnBlue } from '@/lib/buttonStyles';
 
 /**
  * 問い合わせごとのチャット形式の対応履歴
@@ -175,11 +176,7 @@ export default function SampleChat({
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           />
           {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
-          <button
-            type="submit"
-            disabled={sending}
-            className="mt-2 rounded bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
-          >
+          <button type="submit" disabled={sending} className={`mt-2 ${btnBlue}`}>
             {sending ? '送信中…' : '送信'}
           </button>
         </form>

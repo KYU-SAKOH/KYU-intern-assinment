@@ -2,6 +2,7 @@
 
 import type { FormEvent } from 'react';
 
+import { btnBlack } from '@/lib/buttonStyles';
 import type { DraftSample } from '@/types/samples';
 
 /**
@@ -37,10 +38,7 @@ export default function DraftListSection({
           placeholder="キーワードで検索"
           className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
         />
-        <button
-          type="submit"
-          className="rounded bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
-        >
+        <button type="submit" className={btnBlack}>
           検索
         </button>
       </form>

@@ -2,6 +2,7 @@
 
 import type { FormEvent } from 'react';
 
+import { btnBlack, btnWhite } from '@/lib/buttonStyles';
 import {
   STATUS_OPTIONS,
   canEditRegisteredStatus,
@@ -60,11 +61,7 @@ export default function RegisteredListSection({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">登録済みサンプル</h2>
         {onRefresh && (
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="rounded border border-gray-400 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50"
-          >
+          <button type="button" onClick={onRefresh} className={btnWhite}>
             一覧を更新
           </button>
         )}
@@ -149,17 +146,10 @@ export default function RegisteredListSection({
             onChange={(e) => onDateToChange(e.target.value)}
             className="rounded border border-gray-300 px-3 py-2 text-sm"
           />
-          <button
-            type="submit"
-            className="rounded bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
-          >
+          <button type="submit" className={btnBlack}>
             検索
           </button>
-          <button
-            type="button"
-            onClick={onClear}
-            className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
+          <button type="button" onClick={onClear} className={btnWhite}>
             クリア
           </button>
         </div>

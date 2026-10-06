@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import DeleteConfirmDialog from '@/components/DeleteConfirmDialog';
 import SampleChat from '@/components/SampleChat';
 import { API_BASE_URL } from '@/lib/api';
+import { btnBlack, btnGreen, btnRed, btnWhite } from '@/lib/buttonStyles';
 import {
   STATUS_OPTIONS,
   statusBadgeClass,
@@ -17,12 +19,12 @@ import type { components } from '@/types/api';
 /**
  * 管理者画面（ /admin ）
  *
- * 園館スタッフからの問い合わせを優先度順に見て、
+ * 園館スタッフからの問い合わせを見て、
  * 対応状況の更新とチャット対応を行う画面。
  *
  * できること:
  *  - キーワード / 種別 / 対応状況 / 期間で検索
- *  - 対応優先度が高い順に一覧表示
+ *  - 未読→未完了ステータス→優先度→新しい日時の順に一覧表示
  *  - ラジオボタンで対応状況を変更（画面は日本語、保存値は英語）
  *  - チャット形式で園館スタッフとやり取り
  *
@@ -70,6 +72,7 @@ export default function AdminPage() {
   const [resolveDraft, setResolveDraft] = useState<Record<number, ResolveFields>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -240,10 +243,9 @@ export default function AdminPage() {
     }
   };
 
-  const handleAdminDelete = async (id: number) => {
-    if (!window.confirm(`サンプル #${id} を削除します。よろしいですか？`)) {
-      return;
-    }
+  const handleAdminDelete = async () => {
+    if (pendingDeleteId == null) return;
+    const id = pendingDeleteId;
     setDeletingId(id);
     setMessage('');
     setError('');
@@ -272,6 +274,7 @@ export default function AdminPage() {
         delete next[id];
         return next;
       });
+      setPendingDeleteId(null);
       setMessage(`ID ${id} を削除しました。`);
     } catch (e) {
       setError(e instanceof Error ? e.message : '削除に失敗しました');
@@ -308,7 +311,7 @@ export default function AdminPage() {
       <p className="mb-4 text-sm text-gray-600">
         問い合わせの対応状況をラジオボタンで選び保存できます。
         完全対応済みにするときは原因・対応内容・現場での解決方法の入力が必須で、対応履歴チャットに残ります。
-        一覧は対応優先度が高い順（再現率・重要度・内容を参考）に表示します。
+        一覧は未読通知 → 完全対応済み以外 → 優先度が高い順 → 日時が新しい順で表示します。
         園館スタッフとのやり取りは下のチャット（対応履歴）で行います。
         新規登録時の初期ステータスは{' '}
         <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">
@@ -381,15 +384,11 @@ export default function AdminPage() {
           />
         </div>
         <div className="flex gap-2">
-          <button type="submit" className="rounded bg-gray-800 px-4 py-2 text-white hover:bg-gray-900">
+          <button type="submit" className={btnBlack}>
             検索
           </button>
           {hasActiveSearch && (
-            <button
-              type="button"
-              onClick={handleClearSearch}
-              className="rounded border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
-            >
+            <button type="button" onClick={handleClearSearch} className={btnWhite}>
               クリア
             </button>
           )}
@@ -578,15 +577,15 @@ export default function AdminPage() {
                     type="button"
                     onClick={() => handleSave(sample.id)}
                     disabled={savingId === sample.id || deletingId === sample.id}
-                    className="rounded bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-900 disabled:opacity-60"
+                    className={btnGreen}
                   >
                     {savingId === sample.id ? '保存中…' : '対応状況を保存'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleAdminDelete(sample.id)}
+                    onClick={() => setPendingDeleteId(sample.id)}
                     disabled={savingId === sample.id || deletingId === sample.id}
-                    className="rounded border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    className={btnRed}
                   >
                     {deletingId === sample.id ? '削除中…' : '削除'}
                   </button>
@@ -596,6 +595,20 @@ export default function AdminPage() {
           })}
         </ul>
       )}
+
+      <DeleteConfirmDialog
+        open={pendingDeleteId != null}
+        message={
+          pendingDeleteId != null
+            ? `サンプル #${pendingDeleteId} を削除します。よろしいですか？`
+            : ''
+        }
+        confirming={deletingId != null}
+        onConfirm={() => void handleAdminDelete()}
+        onCancel={() => {
+          if (deletingId == null) setPendingDeleteId(null);
+        }}
+      />
     </main>
   );
 }

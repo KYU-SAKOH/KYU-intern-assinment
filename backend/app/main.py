@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -233,7 +233,10 @@ def get_samples(
     ),
     sort: str | None = Query(
         None,
-        description="priority=対応優先度降順（同点は日時降順）。省略時は日時降順",
+        description=(
+            "priority=未読通知→未完了ステータス→優先度降順→日時降順。"
+            "省略時は未読→日時降順"
+        ),
     ),
     # Depends(get_db) … リクエストごとに DB セッションを用意し、終わったら閉じる
     db: Session = Depends(get_db),
@@ -292,13 +295,18 @@ def get_samples(
 
     # response_model=SampleResponse のため、email はレスポンスに含まれない
     if (sort or "").strip().lower() == "priority":
-        # 管理者一覧: 優先度が主。同点なら未読を上に
+        # 未読 → 未完了ステータス → 優先度 → 新しい日時
+        unresolved_first = case(
+            (SampleModel.status == "Fully Resolved", 1),
+            else_=0,
+        )
         return query.order_by(
-            SampleModel.priority_score.desc(),
             SampleModel.staff_notify_unread.desc(),
+            unresolved_first.asc(),
+            SampleModel.priority_score.desc(),
             SampleModel.date.desc(),
         ).all()
-    # スタッフ一覧など: 未読通知を最優先で上部へ
+    # スタッフ下書き一覧など: 未読通知を最優先で上部へ
     return query.order_by(
         SampleModel.staff_notify_unread.desc(),
         SampleModel.date.desc(),

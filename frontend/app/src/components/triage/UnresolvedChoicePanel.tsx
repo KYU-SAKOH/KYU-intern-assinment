@@ -1,5 +1,7 @@
 'use client';
 
+import { btnBlack, btnBlue, btnWhite } from '@/lib/buttonStyles';
+
 /**
  * 未解決時の分岐（一時保存 / 詳細入力）
  */
@@ -31,22 +33,14 @@ export default function UnresolvedChoicePanel({
           type="button"
           disabled={submitting}
           onClick={onTemporarySave}
-          className="rounded border border-gray-400 bg-white px-4 py-3 text-sm font-semibold hover:bg-gray-100 disabled:opacity-60"
+          className={btnWhite}
         >
           {submitting ? '保存中…' : '一時保存'}
         </button>
-        <button
-          type="button"
-          onClick={onOpenDetail}
-          className="rounded bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-800"
-        >
+        <button type="button" onClick={onOpenDetail} className={btnBlue}>
           詳細を入力
         </button>
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex min-h-12 items-center rounded-lg bg-sky-600 px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-sky-700"
-        >
+        <button type="button" onClick={onBack} className={btnBlack}>
           戻る
         </button>
       </div>

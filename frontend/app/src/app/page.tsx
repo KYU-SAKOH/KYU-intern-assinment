@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import DeleteConfirmDialog from '@/components/DeleteConfirmDialog';
 import DetailWizard, { type DetailStep } from '@/components/DetailWizard';
 import SampleChat from '@/components/SampleChat';
 import DraftListSection from '@/components/triage/DraftListSection';
@@ -11,6 +12,7 @@ import TriageInputPanel from '@/components/triage/TriageInputPanel';
 import TriageResultPanel from '@/components/triage/TriageResultPanel';
 import UnresolvedChoicePanel from '@/components/triage/UnresolvedChoicePanel';
 import { API_BASE_URL, readApiError } from '@/lib/api';
+import { btnBlack, btnBlue, btnRed } from '@/lib/buttonStyles';
 import {
   isValidEmail,
   nonEmptySteps,
@@ -113,6 +115,7 @@ export default function Home() {
 
   const [actionError, setActionError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   /** 詳細画面でこのセッション中にスタッフがチャット返信したか */
   const [staffRepliedThisSession, setStaffRepliedThisSession] = useState(false);
   /** 一覧に戻ったあと未読が残ったときの案内 */
@@ -132,6 +135,7 @@ export default function Home() {
 
   const loadRegistered = useCallback(async () => {
     const params = new URLSearchParams({ is_draft: 'false' });
+    params.set('sort', 'priority');
     if (appliedRegisteredKeyword.trim()) {
       params.set('q', appliedRegisteredKeyword.trim());
     }
@@ -842,13 +846,11 @@ export default function Home() {
   };
 
   const handleRegisteredDelete = async () => {
-    if (!selectedRegistered || !canEditRegisteredStatus(selectedRegistered.status)) {
-      return;
-    }
     if (
-      !window.confirm(
-        `サンプル #${selectedRegistered.id} を削除します。よろしいですか？`,
-      )
+      pendingDeleteId == null ||
+      !selectedRegistered ||
+      selectedRegistered.id !== pendingDeleteId ||
+      !canEditRegisteredStatus(selectedRegistered.status)
     ) {
       return;
     }
@@ -865,6 +867,7 @@ export default function Home() {
           await readApiError(res, `削除に失敗しました (${res.status})`),
         );
       }
+      setPendingDeleteId(null);
       goHome();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : '削除に失敗しました。');
@@ -925,9 +928,7 @@ export default function Home() {
   const leaveButtonLabel = notifyCanClear
     ? '一覧に戻る（未読を消す）'
     : '一覧に戻る';
-  const leaveButtonClass = notifyCanClear
-    ? 'inline-flex min-h-12 items-center rounded-lg bg-amber-600 px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-amber-700'
-    : 'inline-flex min-h-12 items-center rounded-lg bg-sky-600 px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-sky-700';
+  const leaveButtonClass = btnBlack;
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-4 py-10">
@@ -971,7 +972,7 @@ export default function Home() {
                     .getElementById('registered-samples')
                     ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }}
-                className="mt-2 rounded border-2 border-amber-700 bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700"
+                className={`mt-2 ${btnBlue}`}
               >
                 登録済み一覧を見る
               </button>
@@ -1148,7 +1149,7 @@ export default function Home() {
                   setView('unresolvedChoice');
                 }
               }}
-              className="inline-flex min-h-12 items-center rounded-lg bg-sky-600 px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-sky-700"
+              className={btnRed}
             >
               キャンセル
             </button>
@@ -1158,13 +1159,6 @@ export default function Home() {
 
       {view === 'editRegistered' && selectedRegistered && (
         <section className="space-y-4">
-          <button
-            type="button"
-            onClick={() => void leaveRegisteredDetail()}
-            className={leaveButtonClass}
-          >
-            {leaveButtonLabel}
-          </button>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold">
               サンプル #{selectedRegistered.id}
@@ -1180,6 +1174,13 @@ export default function Home() {
               </span>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => void leaveRegisteredDetail()}
+            className={leaveButtonClass}
+          >
+            {leaveButtonLabel}
+          </button>
           {notifyUnread && selectedRegistered.staff_notify_summary && (
             <p className="rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950">
               {selectedRegistered.staff_notify_summary}
@@ -1305,25 +1306,16 @@ export default function Home() {
               submittingLabel="保存中…"
               onFormSubmit={(e) => advanceOrSubmit(e, handleRegisteredSave)}
               footerExtra={
-                <>
-                  {detailStep === 1 && (
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() => void handleRegisteredDelete()}
-                      className="rounded border border-red-600 bg-white px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                    >
-                      削除
-                    </button>
-                  )}
+                detailStep === 1 ? (
                   <button
                     type="button"
-                    onClick={() => void leaveRegisteredDetail()}
-                    className={leaveButtonClass}
+                    disabled={submitting}
+                    onClick={() => setPendingDeleteId(selectedRegistered.id)}
+                    className={btnRed}
                   >
-                    {leaveButtonLabel}
+                    削除
                   </button>
-                </>
+                ) : undefined
               }
             />
           ) : (
@@ -1393,13 +1385,6 @@ export default function Home() {
                   {selectedRegistered.device_info}
                 </p>
               )}
-              <button
-                type="button"
-                onClick={() => void leaveRegisteredDetail()}
-                className={`mt-2 ${leaveButtonClass}`}
-              >
-                {leaveButtonLabel}
-              </button>
             </div>
           )}
 
@@ -1421,6 +1406,20 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      <DeleteConfirmDialog
+        open={pendingDeleteId != null}
+        message={
+          pendingDeleteId != null
+            ? `サンプル #${pendingDeleteId} を削除します。よろしいですか？`
+            : ''
+        }
+        confirming={submitting}
+        onConfirm={() => void handleRegisteredDelete()}
+        onCancel={() => {
+          if (!submitting) setPendingDeleteId(null);
+        }}
+      />
     </main>
   );
 }

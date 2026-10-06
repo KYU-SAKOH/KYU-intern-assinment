@@ -11,10 +11,25 @@ export const REPRODUCTION_RATE_LABELS: Record<string, string> = {
   rare: 'まれに再現する',
 };
 
+/** 軽度=青系 → 深刻=赤系（select / option 共用） */
+export const REPRODUCTION_RATE_OPTION_CLASS: Record<string, string> = {
+  rare: 'bg-blue-100 text-blue-900',
+  sometimes: 'bg-sky-100 text-sky-900',
+  often: 'bg-amber-100 text-amber-900',
+  always: 'bg-red-100 text-red-900',
+};
+
 export const SEVERITY_LABELS: Record<string, string> = {
   low: '低',
   medium: '中',
   high: '高',
+};
+
+/** 軽度=青系 → 深刻=赤系（select / option 共用） */
+export const SEVERITY_OPTION_CLASS: Record<string, string> = {
+  low: 'bg-blue-100 text-blue-900',
+  medium: 'bg-amber-100 text-amber-900',
+  high: 'bg-red-100 text-red-900',
 };
 
 /** 前後空白を除き、空の手順を落とす */
