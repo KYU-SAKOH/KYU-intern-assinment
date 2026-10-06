@@ -5,9 +5,9 @@ models.py  … DB に保存する形（SQLAlchemy）
 schemas.py … HTTP で受け取る / 返す形（Pydantic）
 
 分けておく理由の例:
-  - リクエストでは email が必須でも、レスポンスでは email を返したくない
+  - 登録時の email は保存するが、レスポンスでは返したくない（照合キーではない）
   - PUT と PATCH で「全部必須」か「一部だけ」かを変えたい
-  - 管理者更新は本人メール照合なしで status / admin_comment だけ触る
+  - 管理者更新は status / admin_comment だけ触る
 
 Create 系が複数ある理由（画面フローに対応）:
   SampleCreate … 汎用 POST /samples
@@ -31,9 +31,13 @@ MIN_REPRODUCTION_STEPS = 3
 MAX_REPRODUCTION_STEPS = 15
 
 
+def clean_reproduction_steps(steps: list[str]) -> list[str]:
+    """前後空白を除去し、空文字と文字列以外を落とす。"""
+    return [s.strip() for s in steps if isinstance(s, str) and s.strip()]
+
+
 def serialize_reproduction_steps(steps: list[str]) -> str:
-    cleaned = [s.strip() for s in steps if isinstance(s, str) and s.strip()]
-    return json.dumps(cleaned, ensure_ascii=False)
+    return json.dumps(clean_reproduction_steps(steps), ensure_ascii=False)
 
 
 def deserialize_reproduction_steps(raw: str | None) -> list[str]:
@@ -50,7 +54,7 @@ def deserialize_reproduction_steps(raw: str | None) -> list[str]:
 
 def assert_reproduction_steps_valid(steps: list[str]) -> list[str]:
     """検証して正規化済みリストを返す。不正なら ValueError。"""
-    cleaned = [s.strip() for s in steps if isinstance(s, str) and s.strip()]
+    cleaned = clean_reproduction_steps(steps)
     if len(cleaned) < MIN_REPRODUCTION_STEPS:
         raise ValueError(
             f"再現手順は少なくとも {MIN_REPRODUCTION_STEPS} 件必要です。"
@@ -68,7 +72,7 @@ class SampleCreate(BaseModel):
     place: str
     trouble_type: str
     trouble_detail: str = ""
-    # 登録者メール（必須。あとで更新・削除の照合キーになる）
+    # 登録者メール（必須。登録時に保存する。更新・削除の照合には使わない）
     email: str = Field(min_length=3, max_length=255)
     # トップページのトリアージ入力（任意。トリアージ経由で登録するとき使う）
     expected_actions: str | None = None
@@ -201,7 +205,7 @@ class SampleAdminUpdate(BaseModel):
     """
     PATCH /samples/{id}/admin 用（管理者向け）。
 
-    本人メールの照合はしない（デモ用の簡易管理者画面）。
+    メールは変更しない（デモ用の簡易管理者画面）。
     status と admin_comment だけを更新する。
     """
 

@@ -11,15 +11,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
-from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from gemini_client import DEFAULT_MODEL, get_client, require_api_key
+from gemini_client import generate_json_object, require_api_key
 from models import SampleModel
 from text_utils import like_pattern
 
@@ -160,8 +158,6 @@ def _run_gemini_triage(
     api_key: str,
 ) -> dict[str, Any]:
     """Gemini API によるトリアージ。"""
-    from google.genai import types
-
     if len(expected) < 10 or len(actual) < 10:
         return {
             "status": "needs_reentry",
@@ -207,38 +203,13 @@ ok のときの initial_response は、次の4項目をこの順番・見出し�
         "candidate_samples": candidate_payload,
     }
 
-    client = get_client(api_key)
-    try:
-        response = client.models.generate_content(
-            model=DEFAULT_MODEL,
-            contents=json.dumps(user_prompt, ensure_ascii=False),
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-                system_instruction=system_prompt,
-            ),
-        )
-    except Exception as exc:  # noqa: BLE001 — API 障害をそのまま 502 にする
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gemini API の呼び出しに失敗しました: {exc}",
-        ) from exc
-
-    raw = response.text or "{}"
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Gemini の応答を JSON として解釈できませんでした。",
-        ) from exc
-
-    if not isinstance(parsed, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="Gemini の応答を JSON オブジェクトとして解釈できませんでした。",
-        )
-
+    parsed = generate_json_object(
+        api_key=api_key,
+        system_prompt=system_prompt,
+        user_payload=user_prompt,
+        temperature=0.2,
+        on_failure="raise",
+    )
     return _parse_triage_response(parsed, candidates)
 
 

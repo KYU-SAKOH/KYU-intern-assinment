@@ -3,6 +3,8 @@
 import type { FormEvent, ReactNode } from 'react';
 
 import {
+  REPRODUCTION_RATE_LABELS,
+  SEVERITY_LABELS,
   stepRowLabel,
   stepRowPlaceholder,
 } from '@/lib/reproductionStepsUi';
@@ -45,7 +47,6 @@ type DetailWizardProps = {
   deviceInfo: string;
   onDeviceInfoChange: (value: string) => void;
   actionError: string;
-  actionSuccess: string;
   submitting: boolean;
   submitLabel: string;
   submittingLabel: string;
@@ -83,7 +84,6 @@ export default function DetailWizard({
   deviceInfo,
   onDeviceInfoChange,
   actionError,
-  actionSuccess,
   submitting,
   submitLabel,
   submittingLabel,
@@ -255,10 +255,11 @@ export default function DetailWizard({
                 className="rounded border border-gray-300 px-3 py-2"
               >
                 <option value="">未選択</option>
-                <option value="always">いつも再現する</option>
-                <option value="often">よく再現する</option>
-                <option value="sometimes">ときどき再現する</option>
-                <option value="rare">まれに再現する</option>
+                {Object.entries(REPRODUCTION_RATE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1">
@@ -269,9 +270,11 @@ export default function DetailWizard({
                 className="rounded border border-gray-300 px-3 py-2"
               >
                 <option value="">未選択</option>
-                <option value="low">低</option>
-                <option value="medium">中</option>
-                <option value="high">高</option>
+                {Object.entries(SEVERITY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1">
@@ -308,9 +311,6 @@ export default function DetailWizard({
         )}
 
         {actionError && <p className="text-sm text-red-700">{actionError}</p>}
-        {actionSuccess && (
-          <p className="text-sm text-emerald-700">{actionSuccess}</p>
-        )}
 
         <div className="mt-2 flex flex-wrap gap-3">
           {detailStep > 1 && (

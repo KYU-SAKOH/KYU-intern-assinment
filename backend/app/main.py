@@ -156,6 +156,32 @@ def _serialize_steps_in_payload(data: dict) -> dict:
     return data
 
 
+def _get_sample_or_404(db: Session, sample_id: int) -> SampleModel:
+    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    return db_sample
+
+
+def _save_sample_changes(
+    db: Session, db_sample: SampleModel, data: dict
+) -> SampleModel:
+    """手順の JSON 化、代入、優先度、commit。メール列はここへ渡さない。"""
+    data = _serialize_steps_in_payload(data)
+    for key, value in data.items():
+        setattr(db_sample, key, value)
+    _refresh_priority_score(db_sample)
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+
+def _delete_sample_row(db: Session, sample_id: int) -> None:
+    sample = _get_sample_or_404(db, sample_id)
+    db.delete(sample)
+    db.commit()
+
+
 @app.get("/")
 def health_check():
     """動作確認用。ブラウザで http://localhost:8000/ を開くと healthy が返る。"""
@@ -454,9 +480,7 @@ def finalize_draft_sample(
 ):
     """一時保存サンプルに詳細を入力して本登録にする。"""
     _purge_expired_drafts(db)
-    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not db_sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    db_sample = _get_sample_or_404(db, sample_id)
     if not db_sample.is_draft:
         raise HTTPException(status_code=400, detail="このサンプルは既に本登録済みです。")
 
@@ -492,21 +516,8 @@ def update_sample(
 
     登録メールは変更しない（リクエストに email は含めない）。
     """
-    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not db_sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
-
-    data = sample.model_dump()
-    data = _serialize_steps_in_payload(data)
-
-    # 送られてきた各フィールドを ORM オブジェクトにセット
-    for key, value in data.items():
-        setattr(db_sample, key, value)
-
-    _refresh_priority_score(db_sample)
-    db.commit()
-    db.refresh(db_sample)
-    return db_sample
+    db_sample = _get_sample_or_404(db, sample_id)
+    return _save_sample_changes(db, db_sample, sample.model_dump())
 
 
 @app.patch("/samples/{sample_id}", response_model=SampleResponse)
@@ -517,20 +528,10 @@ def partial_update_sample(
     問い合わせの一部だけ更新する（PATCH /samples/{id}）。
     exclude_unset=True … 「送られなかったフィールド」は更新対象にしない。
     """
-    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not db_sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
-
-    data = sample.model_dump(exclude_unset=True)
-    data = _serialize_steps_in_payload(data)
-
-    for key, value in data.items():
-        setattr(db_sample, key, value)
-
-    _refresh_priority_score(db_sample)
-    db.commit()
-    db.refresh(db_sample)
-    return db_sample
+    db_sample = _get_sample_or_404(db, sample_id)
+    return _save_sample_changes(
+        db, db_sample, sample.model_dump(exclude_unset=True)
+    )
 
 
 @app.patch("/samples/{sample_id}/admin", response_model=SampleResponse)
@@ -545,9 +546,7 @@ def admin_update_sample(
 
     デモ用のためメール照合やログイン認証は行わない。
     """
-    db_sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not db_sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    db_sample = _get_sample_or_404(db, sample_id)
 
     previous_status = db_sample.status
     db_sample.status = sample.status
@@ -579,11 +578,7 @@ def admin_delete_sample(sample_id: int, db: Session = Depends(get_db)):
     管理者向け削除（DELETE /samples/{id}/admin）。
     メール照合・ステータス制限なし。デモ用のためログイン認証は行わない。
     """
-    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
-    db.delete(sample)
-    db.commit()
+    _delete_sample_row(db, sample_id)
 
 
 @app.delete("/samples/{sample_id}", status_code=204)
@@ -592,11 +587,7 @@ def delete_sample(sample_id: int, db: Session = Depends(get_db)):
     問い合わせを削除する（DELETE /samples/{id}）。
     204 = No Content（成功したが返すボディは無い）。
     """
-    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
-    db.delete(sample)
-    db.commit()
+    _delete_sample_row(db, sample_id)
 
 
 # ---------- 対応履歴（チャット） ----------
@@ -605,9 +596,7 @@ def delete_sample(sample_id: int, db: Session = Depends(get_db)):
 @app.get("/samples/{sample_id}/messages", response_model=list[SampleMessageResponse])
 def get_sample_messages(sample_id: int, db: Session = Depends(get_db)):
     """対応履歴（チャット）を時系列で取得する。"""
-    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = _get_sample_or_404(db, sample_id)
     if sample.is_draft:
         raise HTTPException(
             status_code=400, detail="一時保存のサンプルには対応履歴がありません。"
@@ -632,9 +621,7 @@ def create_sample_message(
     対応履歴にメッセージを追加する。
     staff / admin とも登録メールの照合はしない。
     """
-    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = _get_sample_or_404(db, sample_id)
     if sample.is_draft:
         raise HTTPException(
             status_code=400, detail="一時保存のサンプルにはメッセージを送れません。"
@@ -682,9 +669,7 @@ def mark_staff_notification_read(
     db: Session = Depends(get_db),
 ):
     """スタッフ未読通知を消す。登録メールの照合はしない。"""
-    sample = db.query(SampleModel).filter(SampleModel.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = _get_sample_or_404(db, sample_id)
 
     sample.staff_notify_unread = False
     sample.staff_notify_kind = None

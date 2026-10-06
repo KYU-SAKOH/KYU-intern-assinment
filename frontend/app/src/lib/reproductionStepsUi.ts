@@ -17,10 +17,14 @@ export const SEVERITY_LABELS: Record<string, string> = {
   high: '高',
 };
 
+/** 前後空白を除き、空の手順を落とす */
+export function nonEmptySteps(steps: string[]): string[] {
+  return steps.map((s) => s.trim()).filter(Boolean);
+}
+
 /** 既存手順が最低件数を満たしていれば、編集開始時に「合格扱い」してよい */
 export function stepsLookApproved(steps: string[]): boolean {
-  const cleaned = steps.map((s) => s.trim()).filter(Boolean);
-  return cleaned.length >= 3;
+  return nonEmptySteps(steps).length >= 3;
 }
 
 export function stepRowLabel(index: number, total: number): string {

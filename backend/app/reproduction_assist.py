@@ -10,18 +10,19 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from fastapi import HTTPException
-
-from gemini_client import DEFAULT_MODEL, get_client, require_api_key
-from schemas import MAX_REPRODUCTION_STEPS, MIN_REPRODUCTION_STEPS
+from gemini_client import generate_json_object, require_api_key
+from schemas import (
+    MAX_REPRODUCTION_STEPS,
+    MIN_REPRODUCTION_STEPS,
+    clean_reproduction_steps,
+)
 
 
 def normalize_steps(steps: list[str]) -> list[str]:
     """前後空白を除去し、空行を落とす。"""
-    return [s.strip() for s in steps if isinstance(s, str) and s.strip()]
+    return clean_reproduction_steps(steps)
 
 
 def validate_steps_basic(steps: list[str]) -> list[str]:
@@ -48,8 +49,6 @@ def _run_gemini_assist(
     error_code: str | None,
     api_key: str,
 ) -> dict[str, Any]:
-    from google.genai import types
-
     cleaned = normalize_steps(steps)
     basic = validate_steps_basic(cleaned)
     if basic:
@@ -92,37 +91,13 @@ gap_warnings はアドバイスとして積極的に出してよいが、軽微�
         "error_code": error_code,
     }
 
-    client = get_client(api_key)
-    try:
-        response = client.models.generate_content(
-            model=DEFAULT_MODEL,
-            contents=json.dumps(user_prompt, ensure_ascii=False),
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-                system_instruction=system_prompt,
-            ),
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gemini API の呼び出しに失敗しました: {exc}",
-        ) from exc
-
-    raw = response.text or "{}"
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Gemini の応答を JSON として解釈できませんでした。",
-        ) from exc
-
-    if not isinstance(parsed, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="Gemini の応答を JSON オブジェクトとして解釈できませんでした。",
-        )
+    parsed = generate_json_object(
+        api_key=api_key,
+        system_prompt=system_prompt,
+        user_payload=user_prompt,
+        temperature=0.2,
+        on_failure="raise",
+    )
 
     warnings = parsed.get("gap_warnings") or []
     if not isinstance(warnings, list):
@@ -134,7 +109,7 @@ gap_warnings はアドバイスとして積極的に出してよいが、軽微�
         suggestions = []
     suggestions = [str(s).strip() for s in suggestions if str(s).strip()][:4]
 
-    can_proceed = bool(parsed.get("can_proceed")) and not validate_steps_basic(cleaned)
+    can_proceed = bool(parsed.get("can_proceed"))
 
     return {
         "gap_warnings": warnings,
@@ -154,5 +129,4 @@ def run_reproduction_assist(
     expected = (expected_actions or "").strip()
     actual = (actual_actions or "").strip()
     code = (error_code or "").strip() or None
-    cleaned = normalize_steps(steps)
-    return _run_gemini_assist(cleaned, expected, actual, code, api_key)
+    return _run_gemini_assist(steps, expected, actual, code, api_key)

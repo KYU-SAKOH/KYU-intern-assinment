@@ -4,6 +4,8 @@ import type { FormEvent } from 'react';
 
 import type { TriageResult } from '@/types/samples';
 
+import TriageReportFields from './TriageReportFields';
+
 /**
  * トップのトリアージ入力フォーム（view === home）
  */
@@ -40,60 +42,21 @@ export default function TriageInputPanel({
   return (
     <>
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">
-            報告者名 <span className="text-red-600">*</span>
-          </span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">
-            実施した操作と期待結果 <span className="text-red-600">*</span>
-          </span>
-          <textarea
-            value={expectedActions}
-            onChange={(e) => onExpectedChange(e.target.value)}
-            rows={4}
-            className="rounded border border-gray-300 px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">
-            実施した操作と実際の結果 <span className="text-red-600">*</span>
-          </span>
-          <textarea
-            value={actualActions}
-            onChange={(e) => onActualChange(e.target.value)}
-            rows={4}
-            className="rounded border border-gray-300 px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">エラーコード（任意）</span>
-          <input
-            type="text"
-            value={errorCode}
-            onChange={(e) => onErrorCodeChange(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-2"
-          />
-        </label>
-        {triageError && (
-          <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {triageError}
-          </p>
-        )}
-        <button
-          type="submit"
-          disabled={analyzing}
-          className="rounded bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
-        >
-          {analyzing ? 'AI 分析中…' : 'AI で類似事例・一次回答を取得'}
-        </button>
+        <TriageReportFields
+          name={name}
+          onNameChange={onNameChange}
+          expectedActions={expectedActions}
+          onExpectedChange={onExpectedChange}
+          actualActions={actualActions}
+          onActualChange={onActualChange}
+          errorCode={errorCode}
+          onErrorCodeChange={onErrorCodeChange}
+          triageError={triageError}
+          analyzing={analyzing}
+          inputClassName="rounded border border-gray-300 px-3 py-2"
+          idleButtonLabel="AI で類似事例・一次回答を取得"
+          buttonType="submit"
+        />
       </form>
 
       {triage?.status === 'needs_reentry' && (

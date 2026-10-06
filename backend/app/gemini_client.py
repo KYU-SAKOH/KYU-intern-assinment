@@ -11,7 +11,9 @@ mock モードはない。GEMINI_API_KEY が無いとトリアージ／再現支
 
 from __future__ import annotations
 
+import json
 import os
+from typing import Any, Literal, overload
 
 from fastapi import HTTPException
 
@@ -51,3 +53,81 @@ def get_client(api_key: str | None = None):
 
     key = api_key if api_key is not None else require_api_key()
     return genai.Client(api_key=key)
+
+
+@overload
+def generate_json_object(
+    *,
+    api_key: str,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    temperature: float,
+    on_failure: Literal["raise"],
+) -> dict[str, Any]: ...
+
+
+@overload
+def generate_json_object(
+    *,
+    api_key: str,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    temperature: float,
+    on_failure: Literal["none"],
+) -> dict[str, Any] | None: ...
+
+
+def generate_json_object(
+    *,
+    api_key: str,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    temperature: float,
+    on_failure: Literal["raise", "none"],
+) -> dict[str, Any] | None:
+    """
+    Gemini に JSON オブジェクトを返させる。
+
+    on_failure="raise" … トリアージ・再現支援。失敗は 502。
+    on_failure="none" … 優先度。失敗は None（ルール点に戻す）。
+    """
+    from google.genai import types
+
+    client = get_client(api_key)
+    try:
+        response = client.models.generate_content(
+            model=DEFAULT_MODEL,
+            contents=json.dumps(user_payload, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                response_mime_type="application/json",
+                system_instruction=system_prompt,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        if on_failure == "none":
+            return None
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini API の呼び出しに失敗しました: {exc}",
+        ) from exc
+
+    raw = response.text or "{}"
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        if on_failure == "none":
+            return None
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini の応答を JSON として解釈できませんでした。",
+        ) from exc
+
+    if not isinstance(parsed, dict):
+        if on_failure == "none":
+            return None
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini の応答を JSON オブジェクトとして解釈できませんでした。",
+        )
+    return parsed

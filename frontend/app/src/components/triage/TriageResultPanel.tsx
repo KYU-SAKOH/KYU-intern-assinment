@@ -2,6 +2,8 @@
 
 import type { SimilarSample, TriageResult } from '@/types/samples';
 
+import TriageReportFields from './TriageReportFields';
+
 /**
  * トリアージ成功後の結果画面（一次回答・類似・再分析・解決/未解決）
  */
@@ -89,61 +91,22 @@ export default function TriageResultPanel({
       </div>
       <div className="flex flex-col gap-4 rounded border border-gray-200 bg-gray-50 px-4 py-4">
         <h2 className="font-semibold">報告内容（編集可）</h2>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">
-            報告者名 <span className="text-red-600">*</span>
-          </span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            className="rounded border border-gray-300 bg-white px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">
-            実施した操作と期待結果 <span className="text-red-600">*</span>
-          </span>
-          <textarea
-            value={expectedActions}
-            onChange={(e) => onExpectedChange(e.target.value)}
-            rows={4}
-            className="rounded border border-gray-300 bg-white px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">
-            実施した操作と実際の結果 <span className="text-red-600">*</span>
-          </span>
-          <textarea
-            value={actualActions}
-            onChange={(e) => onActualChange(e.target.value)}
-            rows={4}
-            className="rounded border border-gray-300 bg-white px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">エラーコード（任意）</span>
-          <input
-            type="text"
-            value={errorCode}
-            onChange={(e) => onErrorCodeChange(e.target.value)}
-            className="rounded border border-gray-300 bg-white px-3 py-2"
-          />
-        </label>
-        {triageError && (
-          <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {triageError}
-          </p>
-        )}
-        <button
-          type="button"
-          disabled={analyzing}
-          onClick={onRerunTriage}
-          className="rounded bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
-        >
-          {analyzing ? 'AI 分析中…' : '再度 AI 一次回答を取得'}
-        </button>
+        <TriageReportFields
+          name={name}
+          onNameChange={onNameChange}
+          expectedActions={expectedActions}
+          onExpectedChange={onExpectedChange}
+          actualActions={actualActions}
+          onActualChange={onActualChange}
+          errorCode={errorCode}
+          onErrorCodeChange={onErrorCodeChange}
+          triageError={triageError}
+          analyzing={analyzing}
+          inputClassName="rounded border border-gray-300 bg-white px-3 py-2"
+          idleButtonLabel="再度 AI 一次回答を取得"
+          buttonType="button"
+          onButtonClick={onRerunTriage}
+        />
       </div>
       <div className="flex flex-wrap gap-3">
         <button

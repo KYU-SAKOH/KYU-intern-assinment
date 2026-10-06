@@ -13,6 +13,7 @@ import UnresolvedChoicePanel from '@/components/triage/UnresolvedChoicePanel';
 import { API_BASE_URL, readApiError } from '@/lib/api';
 import {
   isValidEmail,
+  nonEmptySteps,
   REPRODUCTION_RATE_LABELS,
   SEVERITY_LABELS,
   stepsLookApproved,
@@ -111,7 +112,6 @@ export default function Home() {
   const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
 
   const [actionError, setActionError] = useState('');
-  const [actionSuccess, setActionSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
   /** 詳細画面でこのセッション中にスタッフがチャット返信したか */
   const [staffRepliedThisSession, setStaffRepliedThisSession] = useState(false);
@@ -203,7 +203,6 @@ export default function Home() {
     setDetailMode('newComplete');
     resetDetailWizardFields();
     setActionError('');
-    setActionSuccess('');
     setView('home');
   };
 
@@ -255,31 +254,57 @@ export default function Home() {
     invalidateStepsApproval();
   };
 
-  const cleanedReproductionSteps = () =>
-    reproductionSteps.map((s) => s.trim()).filter(Boolean);
+  const cleanedReproductionSteps = () => nonEmptySteps(reproductionSteps);
+
+  const editStep1Missing = () =>
+    !name.trim() ||
+    !place.trim() ||
+    !troubleType ||
+    !editExpected.trim() ||
+    !editActual.trim();
+
+  const newStep1FieldsMissing = () =>
+    !place.trim() || !troubleType || !email.trim();
+
+  const detailExtras = () => ({
+    reproduction_steps: cleanedReproductionSteps(),
+    reproduction_rate: reproductionRate || null,
+    severity: severity || null,
+    screenshot_path: screenshotPath || null,
+    device_info: deviceInfo.trim() || null,
+  });
+
+  /** 本登録・更新で共通。未完了ならエラーを出して true */
+  const blockIfStepsNotReady = () => {
+    if (!stepsAiApproved) {
+      setActionError(
+        '再現手順の AI チェックが完了していません。②に戻って確認してください。',
+      );
+      setDetailStep(2);
+      return true;
+    }
+    if (cleanedReproductionSteps().length < 3) {
+      setActionError('再現手順は少なくとも3件必要です。');
+      setDetailStep(2);
+      return true;
+    }
+    return false;
+  };
 
   const goDetailNext = async () => {
     setActionError('');
     if (detailStep === 1) {
       if (view === 'editRegistered') {
-        if (
-          !name.trim() ||
-          !place.trim() ||
-          !troubleType ||
-          !email.trim() ||
-          !editExpected.trim() ||
-          !editActual.trim()
-        ) {
+        if (editStep1Missing()) {
           setActionError(
-            '報告者名・場所・種別・メール・期待結果・実際の結果は必須です。',
+            '報告者名・場所・種別・期待結果・実際の結果は必須です。',
           );
           return;
         }
-      } else if (!place.trim() || !troubleType || !email.trim()) {
+      } else if (newStep1FieldsMissing()) {
         setActionError('場所・種別・メールは必須です。');
         return;
-      }
-      if (!isValidEmail(email)) {
+      } else if (!isValidEmail(email)) {
         setActionError('メールアドレスの形式が正しくありません。');
         return;
       }
@@ -316,22 +341,13 @@ export default function Home() {
     }
     if (step === 3 && stepsAiApproved && (detailStep === 1 || detailStep === 2)) {
       if (view === 'editRegistered') {
-        if (
-          detailStep === 1 &&
-          (!name.trim() ||
-            !place.trim() ||
-            !troubleType ||
-            !email.trim() ||
-            !editExpected.trim() ||
-            !editActual.trim() ||
-            !isValidEmail(email))
-        ) {
+        if (detailStep === 1 && editStep1Missing()) {
           setActionError('①の必須項目を先に入力してください。');
           return;
         }
       } else if (
         detailStep === 1 &&
-        (!place.trim() || !troubleType || !email.trim() || !isValidEmail(email))
+        (newStep1FieldsMissing() || !isValidEmail(email))
       ) {
         setActionError('①の場所・種別・メールを先に入力してください。');
         return;
@@ -428,11 +444,9 @@ export default function Home() {
   const runTriage = async () => {
     setTriageError('');
     setActionError('');
-    setActionSuccess('');
-
-    if (!expectedActions.trim() || !actualActions.trim()) {
+    if (!name.trim() || !expectedActions.trim() || !actualActions.trim()) {
       setTriageError(
-        '「実施した操作と期待結果」「実施した操作と実際の結果」は必須です。',
+        '報告者名・「実施した操作と期待結果」「実施した操作と実際の結果」は必須です。',
       );
       return;
     }
@@ -477,7 +491,6 @@ export default function Home() {
     setDetailReturnView('home');
     resetDetailWizardFields();
     setActionError('');
-    setActionSuccess('');
     setView('home');
     loadDrafts();
     loadRegistered();
@@ -518,7 +531,6 @@ export default function Home() {
       setEditErrorCode('');
       resetDetailWizardFields();
       setActionError('');
-      setActionSuccess('');
       setDetailReturnView('home');
       setView('triageResult');
       return;
@@ -615,8 +627,6 @@ export default function Home() {
   const handleDetailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionError('');
-    setActionSuccess('');
-
     if (!name.trim() || !place.trim() || !troubleType || !email.trim()) {
       setActionError('報告者名・場所・種別・メールは必須です。');
       return;
@@ -629,27 +639,9 @@ export default function Home() {
       setActionError('入力内容がありません。');
       return;
     }
-    if (!stepsAiApproved) {
-      setActionError(
-        '再現手順の AI チェックが完了していません。②に戻って確認してください。',
-      );
-      setDetailStep(2);
-      return;
-    }
-    const steps = cleanedReproductionSteps();
-    if (steps.length < 3) {
-      setActionError('再現手順は少なくとも3件必要です。');
-      setDetailStep(2);
-      return;
-    }
+    if (blockIfStepsNotReady()) return;
 
-    const detailPayload = {
-      reproduction_steps: steps,
-      reproduction_rate: reproductionRate || null,
-      severity: severity || null,
-      screenshot_path: screenshotPath || null,
-      device_info: deviceInfo.trim() || null,
-    };
+    const detailPayload = detailExtras();
 
     setSubmitting(true);
     try {
@@ -673,7 +665,6 @@ export default function Home() {
             await readApiError(res, `登録に失敗しました (${res.status})`),
           );
         }
-        setActionSuccess('詳細を登録しました。');
       } else {
         const res = await fetch(`${API_BASE_URL}/samples/complete`, {
           method: 'POST',
@@ -695,7 +686,6 @@ export default function Home() {
             await readApiError(res, `登録に失敗しました (${res.status})`),
           );
         }
-        setActionSuccess('問い合わせを登録しました。');
       }
       resetTriageSession();
       await loadDrafts();
@@ -777,7 +767,6 @@ export default function Home() {
     setDeviceInfo(sample.device_info ?? '');
     setUploadingScreenshot(false);
     setActionError('');
-    setActionSuccess('');
     setView('editRegistered');
   };
 
@@ -809,33 +798,14 @@ export default function Home() {
   const handleRegisteredSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionError('');
-    setActionSuccess('');
     if (!selectedRegistered || !canEditRegisteredStatus(selectedRegistered.status)) {
       return;
     }
-    if (
-      !name.trim() ||
-      !place.trim() ||
-      !troubleType ||
-      !editExpected.trim() ||
-      !editActual.trim()
-    ) {
+    if (editStep1Missing()) {
       setActionError('報告者名・場所・種別・期待結果・実際の結果は必須です。');
       return;
     }
-    if (!stepsAiApproved) {
-      setActionError(
-        '再現手順の AI チェックが完了していません。②に戻って確認してください。',
-      );
-      setDetailStep(2);
-      return;
-    }
-    const steps = cleanedReproductionSteps();
-    if (steps.length < 3) {
-      setActionError('再現手順は少なくとも3件必要です。');
-      setDetailStep(2);
-      return;
-    }
+    if (blockIfStepsNotReady()) return;
 
     setSubmitting(true);
     try {
@@ -854,11 +824,7 @@ export default function Home() {
             actual_actions: editActual.trim(),
             error_code: editErrorCode.trim() || null,
             ai_initial_response: selectedRegistered.ai_initial_response ?? null,
-            reproduction_steps: steps,
-            reproduction_rate: reproductionRate || null,
-            severity: severity || null,
-            screenshot_path: screenshotPath || null,
-            device_info: deviceInfo.trim() || null,
+            ...detailExtras(),
           }),
         },
       );
@@ -867,7 +833,6 @@ export default function Home() {
           await readApiError(res, `更新に失敗しました (${res.status})`),
         );
       }
-      setActionSuccess('更新しました。');
       goHome();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : '更新に失敗しました。');
@@ -908,6 +873,18 @@ export default function Home() {
     }
   };
 
+  const advanceOrSubmit = (
+    e: React.FormEvent,
+    submit: (event: React.FormEvent) => void,
+  ) => {
+    if (detailStep !== 3) {
+      e.preventDefault();
+      void goDetailNext();
+      return;
+    }
+    void submit(e);
+  };
+
   const wizardSharedProps = {
     detailStep,
     onSelectStep: handleWizardStepTab,
@@ -933,7 +910,6 @@ export default function Home() {
     deviceInfo,
     onDeviceInfoChange: setDeviceInfo,
     actionError,
-    actionSuccess,
     submitting,
     onBack: goDetailBack,
   };
@@ -1160,14 +1136,7 @@ export default function Home() {
           }
           submitLabel="登録する"
           submittingLabel="登録中…"
-          onFormSubmit={(e) => {
-            if (detailStep !== 3) {
-              e.preventDefault();
-              void goDetailNext();
-              return;
-            }
-            void handleDetailSubmit(e);
-          }}
+          onFormSubmit={(e) => advanceOrSubmit(e, handleDetailSubmit)}
           footerExtra={
             <button
               type="button"
@@ -1334,14 +1303,7 @@ export default function Home() {
               }
               submitLabel="保存"
               submittingLabel="保存中…"
-              onFormSubmit={(e) => {
-                if (detailStep !== 3) {
-                  e.preventDefault();
-                  void goDetailNext();
-                  return;
-                }
-                void handleRegisteredSave(e);
-              }}
+              onFormSubmit={(e) => advanceOrSubmit(e, handleRegisteredSave)}
               footerExtra={
                 <>
                   {detailStep === 1 && (

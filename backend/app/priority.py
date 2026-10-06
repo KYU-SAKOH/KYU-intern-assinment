@@ -9,9 +9,8 @@
 
 from __future__ import annotations
 
-import json
-
-from gemini_client import DEFAULT_MODEL, get_api_key, get_client
+from gemini_client import generate_json_object, get_api_key
+from schemas import clean_reproduction_steps, deserialize_reproduction_steps
 
 SEVERITY_POINTS = {
     "high": 40,
@@ -92,8 +91,6 @@ def _gemini_priority_score(
     status: str | None,
     api_key: str,
 ) -> int | None:
-    from google.genai import types
-
     system_prompt = """あなたは Terravie（園館向けチケット・入場システム）の障害トリアージ担当です。
 問い合わせの対応優先度を 0〜100 の整数で評価してください（高いほど先に対応すべき）。
 
@@ -118,26 +115,14 @@ def _gemini_priority_score(
         "status": status,
     }
 
-    client = get_client(api_key)
-    try:
-        response = client.models.generate_content(
-            model=DEFAULT_MODEL,
-            contents=json.dumps(user_prompt, ensure_ascii=False),
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-                system_instruction=system_prompt,
-            ),
-        )
-    except Exception:  # noqa: BLE001 — 失敗時はルールのみにフォールバック
-        return None
-
-    raw = response.text or "{}"
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
+    parsed = generate_json_object(
+        api_key=api_key,
+        system_prompt=system_prompt,
+        user_payload=user_prompt,
+        temperature=0.1,
+        on_failure="none",
+    )
+    if parsed is None:
         return None
     try:
         value = int(parsed.get("priority_score"))
@@ -204,14 +189,11 @@ def score_from_sample_fields(
     """DB 列（JSON 文字列含む）からスコアを計算するヘルパー。"""
     steps: list[str] = []
     if isinstance(reproduction_steps_raw, list):
-        steps = [str(s).strip() for s in reproduction_steps_raw if str(s).strip()]
-    elif isinstance(reproduction_steps_raw, str) and reproduction_steps_raw.strip():
-        try:
-            data = json.loads(reproduction_steps_raw)
-            if isinstance(data, list):
-                steps = [str(s).strip() for s in data if str(s).strip()]
-        except json.JSONDecodeError:
-            steps = []
+        steps = clean_reproduction_steps(
+            [s if isinstance(s, str) else str(s) for s in reproduction_steps_raw]
+        )
+    elif isinstance(reproduction_steps_raw, str):
+        steps = deserialize_reproduction_steps(reproduction_steps_raw)
 
     return calc_priority_score(
         expected_actions=expected_actions,
