@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog';
 import DetailWizard, { type DetailStep } from '@/components/DetailWizard';
+import PageMascots, { InlineMascot } from '@/components/PageMascots';
 import SampleChat from '@/components/SampleChat';
 import DraftListSection from '@/components/triage/DraftListSection';
 import RegisteredListSection from '@/components/triage/RegisteredListSection';
@@ -936,21 +937,27 @@ export default function Home() {
   const leaveButtonClass = btnBlack;
 
   return (
-    <main className="mx-auto min-h-screen max-w-3xl px-4 py-10">
-      <header className="mb-8">
+    <main className="relative mx-auto min-h-screen max-w-3xl px-4 py-10">
+      {(view === 'home' || view === 'triageResult') && (
+        <PageMascots variant={view === 'home' ? 'home' : 'triage'} />
+      )}
+      <header className="relative z-10 mb-8">
         <h1 className="text-2xl font-bold">terravie トラブル報告フォーム</h1>
         <p className="mt-2 text-sm text-gray-600">
           新しいトラブルを入力すると、AI が類似事例と一次回答を提示します。
         </p>
-        <nav className="mt-4 flex flex-wrap gap-3 text-sm">
+        <nav className="mt-4 flex flex-wrap items-center gap-4 text-sm">
           <Link href="/admin" className="text-gray-700 underline hover:text-gray-900">
             Administrator
           </Link>
+          {(view === 'home' || view === 'triageResult') && (
+            <InlineMascot src="/mascots/dolphin.png" className="ml-1" />
+          )}
         </nav>
       </header>
 
       {view === 'home' && (
-        <>
+        <div className="relative z-10">
           {homeNotice && (
             <div className="mb-4 rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               <p>{homeNotice}</p>
@@ -1042,28 +1049,30 @@ export default function Home() {
             onOpenSample={(sample) => openRegisteredSample(sample)}
             onRefresh={() => void loadRegistered()}
           />
-        </>
+        </div>
       )}
 
       {view === 'triageResult' && triage?.status === 'ok' && (
-        <TriageResultPanel
-          triage={triage}
-          name={name}
-          onNameChange={setName}
-          expectedActions={expectedActions}
-          onExpectedChange={setExpectedActions}
-          actualActions={actualActions}
-          onActualChange={setActualActions}
-          errorCode={errorCode}
-          onErrorCodeChange={setErrorCode}
-          triageError={triageError}
-          analyzing={analyzing}
-          actionError={actionError}
-          onOpenSimilar={(s) => void openSimilarSample(s)}
-          onRerunTriage={() => void runTriage()}
-          onResolved={handleResolved}
-          onUnresolved={handleUnresolved}
-        />
+        <div className="relative z-10">
+          <TriageResultPanel
+            triage={triage}
+            name={name}
+            onNameChange={setName}
+            expectedActions={expectedActions}
+            onExpectedChange={setExpectedActions}
+            actualActions={actualActions}
+            onActualChange={setActualActions}
+            errorCode={errorCode}
+            onErrorCodeChange={setErrorCode}
+            triageError={triageError}
+            analyzing={analyzing}
+            actionError={actionError}
+            onOpenSimilar={(s) => void openSimilarSample(s)}
+            onRerunTriage={() => void runTriage()}
+            onResolved={handleResolved}
+            onUnresolved={handleUnresolved}
+          />
+        </div>
       )}
 
       {view === 'unresolvedChoice' && (

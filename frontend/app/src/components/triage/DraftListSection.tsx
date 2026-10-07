@@ -2,6 +2,7 @@
 
 import type { FormEvent } from 'react';
 
+import { InlineMascot } from '@/components/PageMascots';
 import { btnBlack } from '@/lib/buttonStyles';
 import type { DraftSample } from '@/types/samples';
 
@@ -26,7 +27,10 @@ export default function DraftListSection({
 }: DraftListSectionProps) {
   return (
     <section className="mt-10 border-t border-gray-200 pt-8">
-      <h2 className="mb-3 text-lg font-semibold">一時保存中のサンプル</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">一時保存中のサンプル</h2>
+        <InlineMascot src="/mascots/penguin-blue.png" />
+      </div>
       <p className="mb-3 text-xs text-gray-600">
         一時保存は最初の入力から2週間で自動削除されます。
       </p>
